@@ -6,7 +6,7 @@ This is a progress checklist. A checked item means the feature is implemented an
 
 ## IIIF API
 
-- [x] Parse v3 image and `info.json` routes, including percent-encoded slashes in identifiers, with a configurable prefix and public base URL.
+- [x] Parse v3 image and `info.json` routes, including percent-encoded slashes in identifiers, with a configurable prefix and public base URL. Verify both `/images/v3` and an empty IIIF prefix under `/images` in Docker; see [tests/ACCEPTANCE.md](tests/ACCEPTANCE.md).
 - [x] Implement Level 2 region and size forms, right-angle rotations, and `default`, `color`, and `gray` qualities. Apply transformations in IIIF order. Reject unsupported optional operations without advertising them.
 - [x] Encode JPEG and PNG as required by Level 2, plus WebP; return matching MIME types and dimensions.
 - [x] Generate `info.json` with dimensions, profile, capabilities, `sizes`, and `tiles`. Make the minimum advertised size (64 px) and tile size (1024 px) configurable.
@@ -26,6 +26,8 @@ This is a progress checklist. A checked item means the feature is implemented an
 - [x] Read private S3 source objects through the AWS credential chain. Decode an identifier once and append `.jp2` to form its S3 key; `a%2Fb` resolves to `a/b.jp2`. Never use the identifier as a local path.
 - [x] Keep a per-instance source cache with a configurable 2 GB default, LRU eviction, coalesced simultaneous downloads, and source leases that prevent eviction while in use. An active lease can temporarily put the cache over its target; eviction runs when it is released.
 - [x] Store generated images in a shared private S3 cache keyed by API version, identifier, request, format, and purge generation. Coalesce duplicate rendering within an instance and avoid overwriting another instance's result with conditional writes.
+- [x] Stream cache-hit derivatives from S3 to HTTP clients without buffering the full object. Verify cold and warm bytes match and `HEAD` retains the correct `Content-Length` locally; see [tests/ACCEPTANCE.md](tests/ACCEPTANCE.md).
+- [x] Keep each newly rendered image's memory reservation until its S3 write and HTTP response release their final reference to the encoded bytes. Test permit lifetime across cloned response bytes.
 - [x] Provide a designated `prune-cache` command and `prune-cache-loop`. They delete oldest derivatives until usage is below the configurable 10 GB target. The target is soft between cleanup runs; purge markers are outside the pruned prefix.
 - [x] Implement generation markers in S3. Every request checks the marker before its cache lookup, and rendering rechecks before writing. An authenticated purge changes the generation across instances and removes old derivatives in the background. Source replacement at an existing key requires a purge.
 - [x] Allow downstream HTTP caches to retain old responses until their normal one-day expiry after purge.

@@ -125,8 +125,10 @@ async fn concurrent_source_reuse_and_cross_instance_purge() {
         .put_derivative(&old_key, Bytes::from_static(b"old image"), "image/jpeg")
         .await
         .unwrap();
+    let cached = second.get_derivative(&old_key).await.unwrap().unwrap();
+    assert_eq!(cached.size, Some(9));
     assert_eq!(
-        second.get_derivative(&old_key).await.unwrap().unwrap(),
+        cached.body.collect().await.unwrap().into_bytes(),
         "old image"
     );
 

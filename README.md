@@ -4,7 +4,7 @@ Persimmon is a Rust IIIF Image API 3.0 server for private JP2 images in S3. The 
 
 ## Current implementation
 
-The server parses IIIF Image API 3.0 routes, reads JP2 sources from S3, caches local source files and S3 derivatives, handles generation-based cache purges, and encodes JPEG, PNG, and WebP. It has a TLS listener, an authenticated purge endpoint, and `/healthz`.
+The server parses IIIF Image API 3.0 routes, reads JP2 sources from S3, caches local source files and S3 derivatives, handles generation-based cache purges, and encodes JPEG, PNG, and WebP. Cached derivatives stream from S3 to the client without being collected into one in-memory buffer. Newly rendered outputs are encoded in memory before their S3 write and HTTP response. The server has a TLS listener, an authenticated purge endpoint, and `/healthz`.
 
 **The project is still under development.** It has not passed a full IIIF Level 2 conformance suite or a production multi-instance load test. The native adapter decodes regions at Kakadu resolution levels before Rust applies final scaling and encoding. Requests whose reduced decode exceeds the native limit, or whose component geometry is unsupported by the adapter, attempt the Kakadu `kdu_expand` command fallback. The fallback has its own decoded-pixel limit and can also reject a large request. The adapter still needs validation with the release Kakadu SDK and concurrent Linux load tests. Do not claim Level 2 compliance or the throughput target from the current code alone.
 
@@ -65,7 +65,7 @@ Optional environment variables:
 | `PERSIMMON_DERIVATIVE_CACHE_BYTES` | `10000000000` | Shared S3 derivative cache target in bytes. |
 | `PERSIMMON_PRUNE_INTERVAL_SECONDS` | `3600` | Seconds between passes when running `prune-cache-loop`. |
 | `PERSIMMON_MAX_SOURCE_BYTES` | `250000000` | Largest accepted JP2 file in bytes. |
-| `PERSIMMON_MAX_TEMP_BITMAP_BYTES` | `2000000000` | Per-instance budget for concurrent intermediate bitmap files and native decode buffers. |
+| `PERSIMMON_MAX_TEMP_BITMAP_BYTES` | `2000000000` | Per-instance budget for concurrent decode, intermediate bitmap, and newly encoded response buffers. A response retains its reservation until its final byte buffer is released. |
 | `PERSIMMON_MAX_OUTPUT_PIXELS` | `100000000` | Largest output image area. Reported as `maxArea` in `info.json`. |
 | `PERSIMMON_MAX_DECODE_PIXELS` | `100000000` | Largest decoded region area accepted by the `kdu_expand` fallback. Must be at least the output pixel limit. |
 | `PERSIMMON_MAX_NATIVE_DECODE_PIXELS` | `10000000` | Largest in-memory regional decode buffer in pixels after Kakadu resolution reduction. The server attempts `kdu_expand` if this limit or the adapter's supported component geometry is exceeded. |

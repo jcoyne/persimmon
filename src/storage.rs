@@ -9,7 +9,7 @@ use std::{
 };
 
 use anyhow::Context;
-use aws_sdk_s3::{Client, error::ProvideErrorMetadata};
+use aws_sdk_s3::{Client, error::ProvideErrorMetadata, primitives::ByteStream};
 use bytes::Bytes;
 use sha2::{Digest, Sha256};
 use tokio::{
@@ -49,6 +49,11 @@ pub struct SourceLease {
     local: Arc<StdMutex<LocalState>>,
     local_limit: u64,
     metrics: Arc<Metrics>,
+}
+
+pub struct Derivative {
+    pub body: ByteStream,
+    pub size: Option<u64>,
 }
 
 struct RemoveOnDrop(Option<PathBuf>);
@@ -264,7 +269,7 @@ impl Storage {
         Ok(())
     }
 
-    pub async fn get_derivative(&self, key: &str) -> anyhow::Result<Option<Bytes>> {
+    pub async fn get_derivative(&self, key: &str) -> anyhow::Result<Option<Derivative>> {
         Metrics::increment(&self.metrics.s3_requests);
         match self
             .s3
@@ -275,9 +280,11 @@ impl Storage {
             .await
         {
             Ok(output) => {
-                let data = output.body.collect().await?.into_bytes();
                 Metrics::increment(&self.metrics.derivative_hits);
-                Ok(Some(data))
+                Ok(Some(Derivative {
+                    size: output.content_length().and_then(|n| u64::try_from(n).ok()),
+                    body: output.body,
+                }))
             }
             Err(e) if e.as_service_error().and_then(|e| e.code()) == Some("NoSuchKey") => {
                 Metrics::increment(&self.metrics.derivative_misses);

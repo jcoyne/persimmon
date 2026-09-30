@@ -21,11 +21,11 @@ use persimmon::{
     jp2,
     metrics::Metrics,
     pipeline::{KakaduBackend, KakaduCli, KakaduNative, RenderPath},
-    storage::{SourceNotFound, Storage, hash},
+    storage::{Derivative, SourceNotFound, Storage, hash},
 };
 use serde::{Deserialize, Serialize};
 use subtle::ConstantTimeEq;
-use tokio::sync::{Mutex, Semaphore};
+use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore};
 use tower_http::{
     cors::CorsLayer,
     trace::{DefaultOnResponse, TraceLayer},
@@ -37,9 +37,20 @@ struct AppState {
     storage: Arc<Storage>,
     kakadu: KakaduBackend,
     decodes: Semaphore,
-    temp_bitmaps: Semaphore,
+    temp_bitmaps: Arc<Semaphore>,
     derivative_locks: Vec<Mutex<()>>,
     health: Mutex<Option<(Instant, bool)>>,
+}
+
+struct RenderedBytes {
+    data: Vec<u8>,
+    _permit: OwnedSemaphorePermit,
+}
+
+impl AsRef<[u8]> for RenderedBytes {
+    fn as_ref(&self) -> &[u8] {
+        &self.data
+    }
 }
 
 fn text_response(status: StatusCode, message: &str) -> Response {
@@ -79,6 +90,12 @@ fn base_uri(config: &Config, identifier: &str) -> String {
         config.iiif_prefix,
         encoded_identifier(identifier)
     )
+}
+
+fn iiif_path<'a>(raw_path: &'a str, route_prefix: &str) -> Option<&'a str> {
+    raw_path
+        .strip_prefix(route_prefix)
+        .filter(|path| path.starts_with('/'))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -349,7 +366,7 @@ async fn iiif_handler(
 
 async fn iiif_handler_inner(state: Arc<AppState>, uri: Uri, headers: &HeaderMap) -> Response {
     let raw_path = uri.path();
-    let path = match raw_path.strip_prefix(&state.config.route_prefix) {
+    let path = match iiif_path(raw_path, &state.config.route_prefix) {
         Some(path) => path,
         None => return text_response(StatusCode::NOT_FOUND, "Not found"),
     };
@@ -394,7 +411,13 @@ async fn iiif_handler_inner(state: Arc<AppState>, uri: Uri, headers: &HeaderMap)
             .storage
             .derivative_key(&identifier, &generation, raw_path);
         match state.storage.get_derivative(&key).await {
-            Ok(Some(data)) => return image_response(data, request.format.mime()),
+            Ok(Some(data)) => {
+                return cached_image_response(
+                    data,
+                    request.format.mime(),
+                    state.storage.metrics.clone(),
+                );
+            }
             Ok(None) => {}
             Err(e) => return error_response(StatusCode::SERVICE_UNAVAILABLE, e),
         }
@@ -402,7 +425,13 @@ async fn iiif_handler_inner(state: Arc<AppState>, uri: Uri, headers: &HeaderMap)
         let index = usize::from(u8::from_str_radix(&digest[..2], 16).expect("hash prefix"));
         let guard = state.derivative_locks[index].lock().await;
         match state.storage.get_derivative(&key).await {
-            Ok(Some(data)) => return image_response(data, request.format.mime()),
+            Ok(Some(data)) => {
+                return cached_image_response(
+                    data,
+                    request.format.mime(),
+                    state.storage.metrics.clone(),
+                );
+            }
             Ok(None) => {}
             Err(e) => return error_response(StatusCode::SERVICE_UNAVAILABLE, e),
         }
@@ -472,11 +501,16 @@ async fn iiif_handler_inner(state: Arc<AppState>, uri: Uri, headers: &HeaderMap)
                     "temporary bitmap limit exceeded",
                 );
             }
-            let _temp_permit = match state.temp_bitmaps.acquire_many(needed as u32).await {
+            let temp_permit = match state
+                .temp_bitmaps
+                .clone()
+                .acquire_many_owned(needed as u32)
+                .await
+            {
                 Ok(permit) => permit,
                 Err(e) => return error_response(StatusCode::SERVICE_UNAVAILABLE, e),
             };
-            let _permit = match state.decodes.acquire().await {
+            let decode_permit = match state.decodes.acquire().await {
                 Ok(permit) => permit,
                 Err(e) => return error_response(StatusCode::SERVICE_UNAVAILABLE, e),
             };
@@ -491,6 +525,7 @@ async fn iiif_handler_inner(state: Arc<AppState>, uri: Uri, headers: &HeaderMap)
                     &request,
                 )
                 .await;
+            drop(decode_permit);
             Metrics::increment(&state.storage.metrics.render_count);
             state.storage.metrics.render_duration_ns.fetch_add(
                 started.elapsed().as_nanos().min(u128::from(u64::MAX)) as u64,
@@ -516,7 +551,12 @@ async fn iiif_handler_inner(state: Arc<AppState>, uri: Uri, headers: &HeaderMap)
             let key = state
                 .storage
                 .derivative_key(&identifier, &generation, raw_path);
-            let bytes = Bytes::from(data);
+            // Keep the reservation while S3 and the HTTP response still hold
+            // references to the encoded image, including slow clients.
+            let bytes = Bytes::from_owner(RenderedBytes {
+                data,
+                _permit: temp_permit,
+            });
             match state.storage.generation(&identifier).await {
                 Ok(current) if current == generation => {
                     if let Err(e) = state
@@ -541,8 +581,38 @@ fn image_response(data: Bytes, mime: &'static str) -> Response {
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, HeaderValue::from_static(mime))
         .header(header::CACHE_CONTROL, "public, max-age=86400")
+        .header(header::CONTENT_LENGTH, data.len().to_string())
         .body(Body::from(data))
         .expect("valid image response")
+}
+
+fn cached_image_response(
+    derivative: Derivative,
+    mime: &'static str,
+    metrics: Arc<Metrics>,
+) -> Response {
+    let mut response = Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, HeaderValue::from_static(mime))
+        .header(header::CACHE_CONTROL, "public, max-age=86400");
+    if let Some(size) = derivative.size {
+        response = response.header(header::CONTENT_LENGTH, size.to_string());
+    }
+    let stream = futures::stream::unfold(
+        (derivative.body, metrics),
+        |(mut body, metrics)| async move {
+            body.next().await.map(|chunk| {
+                if let Err(error) = &chunk {
+                    Metrics::increment(&metrics.errors);
+                    warn!(error = %error, "cached derivative stream failed");
+                }
+                (chunk, (body, metrics))
+            })
+        },
+    );
+    response
+        .body(Body::from_stream(stream))
+        .expect("valid cached image response")
 }
 
 #[tokio::main]
@@ -596,7 +666,9 @@ async fn main() -> anyhow::Result<()> {
         .context("Kakadu startup check")?;
     let state = Arc::new(AppState {
         decodes: Semaphore::new(config.max_parallel_decodes),
-        temp_bitmaps: Semaphore::new((config.max_temp_bitmap_bytes / 1_048_576) as usize),
+        temp_bitmaps: Arc::new(Semaphore::new(
+            (config.max_temp_bitmap_bytes / 1_048_576) as usize,
+        )),
         derivative_locks: (0..256).map(|_| Mutex::new(())).collect(),
         health: Mutex::new(None),
         config: config.clone(),
@@ -627,8 +699,45 @@ async fn main() -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{InfoMedia, info_media};
+    use super::{InfoMedia, RenderedBytes, iiif_path, image_response, info_media};
     use axum::http::{HeaderMap, header};
+    use bytes::Bytes;
+    use std::sync::Arc;
+    use tokio::sync::Semaphore;
+
+    #[test]
+    fn iiif_prefix_matches_complete_path_segments() {
+        assert_eq!(
+            iiif_path("/iiif/v3/id/info.json", "/iiif/v3"),
+            Some("/id/info.json")
+        );
+        assert_eq!(
+            iiif_path("/iiif/id/info.json", "/iiif"),
+            Some("/id/info.json")
+        );
+        assert_eq!(iiif_path("/id/info.json", ""), Some("/id/info.json"));
+        assert_eq!(iiif_path("/iiif/v30/id/info.json", "/iiif/v3"), None);
+        assert_eq!(iiif_path("/iiifx/id/info.json", "/iiif"), None);
+        assert_eq!(iiif_path("/iiif/v3", "/iiif/v3"), None);
+    }
+
+    #[tokio::test]
+    async fn render_memory_reservation_lives_as_long_as_response_bytes() {
+        let budget = Arc::new(Semaphore::new(1));
+        let permit = budget.clone().acquire_owned().await.unwrap();
+        let bytes = Bytes::from_owner(RenderedBytes {
+            data: vec![1, 2, 3],
+            _permit: permit,
+        });
+        let s3_copy = bytes.clone();
+        let response = image_response(bytes, "image/jpeg");
+        assert_eq!(budget.available_permits(), 0);
+        assert_eq!(&s3_copy[..], &[1, 2, 3]);
+        drop(s3_copy);
+        assert_eq!(budget.available_permits(), 0);
+        drop(response);
+        assert_eq!(budget.available_permits(), 1);
+    }
 
     #[test]
     fn negotiates_image_information_media_type() {
