@@ -22,6 +22,10 @@ The rebuilt image with the quality-advertisement fix served the same fixture fro
 
 On 2026-09-30, `target/debug/persimmon prune-cache` ran against a disposable Moto bucket with the public URL, source bucket, admin credentials, TLS paths, and Kakadu paths explicitly unset. It needed only AWS region/test credentials, cache bucket, local S3 endpoint, and a 5-byte cache target. Of two 4-byte derivatives, it deleted the older one and retained the newer one; the purge marker remained. Its structured log reported `bytes=4` and `deleted=1`. This verifies the cleanup job can use a smaller runtime secret set than the HTTP server; AWS IAM behavior remains unverified.
 
+The rebuilt Linux `amd64` Docker image passed the same cleanup check with only those cache and AWS environment variables, deleting one older derivative and retaining the newer derivative and marker. The existing Moto integration test for concurrent source reuse, cross-instance purge, and derivative pruning also passed after the refactor.
+
+The rebuilt image's HTTP server also started with its normal configuration and a disposable Moto source bucket. `/healthz` returned `OK` and Docker reported healthy; the 1000×1000 CC0 fixture returned Level 2 `info.json` and a nonempty JPEG response. This checks that the separate cleanup configuration did not disrupt server startup.
+
 ## Streamed derivative response
 
 On 2026-09-30, the updated Docker image served a 500 px wide JPEG from the CC0 validator fixture. A cold render and an S3 cache hit returned identical 29,568-byte images with matching SHA-256 hashes. A `HEAD` request returned an empty body and the same `Content-Length` as both `GET` responses. Metrics showed one native render and two derivative cache hits (the warm `GET` and `HEAD`). The cache-hit HTTP body now forwards S3 chunks as they arrive. This local check does not measure production memory use or throughput.

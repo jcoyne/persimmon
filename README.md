@@ -10,7 +10,7 @@ The server parses IIIF Image API 3.0 routes, reads JP2 sources from S3, caches l
 
 The [IIIF Image API validator](https://github.com/IIIF/image-validator) ran against the local server with its [CC0 JP2 test image](https://iiif.io/api/image/validator/download/), supplied in [tests/fixtures/iiif-validator.jp2](tests/fixtures/iiif-validator.jp2). A local run with the Linux `amd64` Docker image and Kakadu 8.6.2 native adapter passed 31 of 33 checks. The remaining results are documented in [tests/VALIDATOR.md](tests/VALIDATOR.md); validation with representative source images and the final release build is still required.
 
-The optional S3 integration test covers concurrent reuse of one local source, local LRU eviction, source replacement after purge on two instances, shared derivative invalidation, and cache pruning. Run a local S3-compatible test server such as Moto, then use `PERSIMMON_TEST_S3_ENDPOINT=http://127.0.0.1:5000 cargo test --test cache_integration -- --ignored`. The test creates its own uniquely named buckets.
+The optional S3 integration test covers concurrent reuse of one local source, local LRU eviction, source replacement after purge on two instances, shared derivative invalidation, and cache pruning. Run a local S3-compatible test server such as Moto, then use `PERSIMMON_TEST_S3_ENDPOINT=http://127.0.0.1:5001 cargo test --test cache_integration -- --ignored`. The test creates its own uniquely named buckets.
 
 Local source files in active use are retained until their requests finish. If this briefly takes the source cache over its limit, release of the last active lease triggers LRU eviction back toward the configured limit. A source larger than the limit can still be served, then is removed after its request finishes. Set `PERSIMMON_LOCAL_CACHE_BYTES=0` to keep sources only while requests use them.
 
@@ -36,6 +36,46 @@ docker buildx build --platform linux/amd64 \
 ```
 
 No Kakadu SDK binaries, headers, or credentials belong in this repository. The build container requires production-licensed Stanford assets.
+
+## Local Moto S3
+
+Use [Moto server mode](https://docs.getmoto.org/en/5.1.3/docs/server_mode.html) to try the image server without AWS. From the repository root, install Moto and Boto3 in a disposable virtual environment, then start Moto in one terminal:
+
+```sh
+python3 -m venv /tmp/persimmon-moto
+/tmp/persimmon-moto/bin/python -m pip install 'moto[server]' boto3
+/tmp/persimmon-moto/bin/moto_server -H 0.0.0.0 -p 5001
+```
+
+In another terminal, still at the repository root, create separate source and derivative-cache buckets and upload the included CC0 JP2 test image:
+
+```sh
+/tmp/persimmon-moto/bin/python - <<'PY'
+import boto3
+
+s3 = boto3.client(
+    "s3",
+    endpoint_url="http://127.0.0.1:5001",
+    region_name="us-east-1",
+    aws_access_key_id="test",
+    aws_secret_access_key="test",
+)
+for bucket in ("persimmon-local-source", "persimmon-local-cache"):
+    s3.create_bucket(Bucket=bucket)
+s3.upload_file(
+    "tests/fixtures/iiif-validator.jp2",
+    "persimmon-local-source",
+    "example.jp2",
+)
+print("Uploaded example.jp2")
+PY
+```
+
+To upload your own image, replace the first `upload_file` argument with its local JP2 path and the third argument with `<identifier>.jp2`. For example, key `my-image.jp2` is requested using identifier `my-image`.
+
+For a Persimmon container on Docker Desktop, set `PERSIMMON_S3_ENDPOINT=http://host.docker.internal:5001`, `PERSIMMON_SOURCE_BUCKET=persimmon-local-source`, `PERSIMMON_CACHE_BUCKET=persimmon-local-cache`, `AWS_REGION=us-east-1`, and dummy `AWS_ACCESS_KEY_ID=test` and `AWS_SECRET_ACCESS_KEY=test`. Also set the public URL and admin credentials described below, and configure native TLS or a trusted HTTPS proxy. On Linux Docker, add `--add-host=host.docker.internal:host-gateway` to `docker run` to make the same endpoint name available. The uploaded image is requested as identifier `example`, for example `/v3/example/info.json`; Persimmon appends `.jp2` when finding its S3 object. For an identifier containing a slash, upload key `a/b.jp2` and request `a%2Fb`.
+
+Moto keeps this test data only while that server process runs. Stop it with Ctrl-C when finished. Binding Moto to `0.0.0.0` allows the container to reach it, so use this setup on a trusted local machine.
 
 ## Configuration
 
