@@ -16,12 +16,12 @@ use axum::{
 use base64::{Engine, engine::general_purpose::STANDARD};
 use bytes::Bytes;
 use persimmon::{
-    config::Config,
+    config::{Config, PruneConfig},
     iiif::{self, Route},
     jp2,
     metrics::Metrics,
     pipeline::{KakaduBackend, KakaduCli, KakaduNative, RenderPath},
-    storage::{Derivative, SourceNotFound, Storage, hash},
+    storage::{Derivative, SourceNotFound, Storage, hash, prune_derivatives},
 };
 use serde::{Deserialize, Serialize};
 use subtle::ConstantTimeEq;
@@ -292,13 +292,7 @@ async fn purge(
     }
 }
 
-fn info_document(
-    config: &Config,
-    identifier: &str,
-    width: u32,
-    height: u32,
-    components: u16,
-) -> serde_json::Value {
+fn info_document(config: &Config, identifier: &str, width: u32, height: u32) -> serde_json::Value {
     let mut sizes = Vec::new();
     let (mut w, mut h) = iiif::max_size(width, height, config.max_output_pixels);
     while w >= config.min_size && h >= config.min_size {
@@ -331,7 +325,7 @@ fn info_document(
         "maxArea": config.max_output_pixels,
         "preferredFormats": ["webp"],
         "extraFormats": ["webp"],
-        "extraQualities": if components == 1 { vec!["gray"] } else { vec!["color", "gray"] }
+        "extraQualities": ["color", "gray"]
     });
     if !sizes.is_empty() {
         info["sizes"] = serde_json::json!(sizes);
@@ -459,7 +453,6 @@ async fn iiif_handler_inner(state: Arc<AppState>, uri: Uri, headers: &HeaderMap)
                 &identifier,
                 dimensions.0,
                 dimensions.1,
-                dimensions.2,
             ))
             .expect("serialize JSON");
             let content_type = match media {
@@ -623,18 +616,24 @@ async fn main() -> anyhow::Result<()> {
         )
         .json()
         .init();
-    let config = Arc::new(Config::from_env()?);
-    let aws = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
-    let mut s3_config = aws_sdk_s3::config::Builder::from(&aws);
-    if let Some(endpoint) = &config.s3_endpoint {
-        s3_config = s3_config.endpoint_url(endpoint).force_path_style(true);
-    }
-    let s3 = Client::from_conf(s3_config.build());
     let command = std::env::args().nth(1);
     if matches!(command.as_deref(), Some("prune-cache" | "prune-cache-loop")) {
-        let storage = Storage::new_for_pruner(s3, config.clone()).await?;
+        let config = PruneConfig::from_env()?;
+        let aws = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
+        let mut s3_config = aws_sdk_s3::config::Builder::from(&aws);
+        if let Some(endpoint) = &config.s3_endpoint {
+            s3_config = s3_config.endpoint_url(endpoint).force_path_style(true);
+        }
+        let s3 = Client::from_conf(s3_config.build());
         loop {
-            let (bytes, deleted) = storage.prune_derivatives().await?;
+            let (bytes, deleted) = prune_derivatives(
+                &s3,
+                &config.cache_bucket,
+                &config.cache_prefix,
+                config.derivative_cache_limit,
+                None,
+            )
+            .await?;
             info!(bytes, deleted, "derivative cleanup complete");
             if command.as_deref() == Some("prune-cache") {
                 break;
@@ -646,6 +645,13 @@ async fn main() -> anyhow::Result<()> {
         }
         return Ok(());
     }
+    let config = Arc::new(Config::from_env()?);
+    let aws = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
+    let mut s3_config = aws_sdk_s3::config::Builder::from(&aws);
+    if let Some(endpoint) = &config.s3_endpoint {
+        s3_config = s3_config.endpoint_url(endpoint).force_path_style(true);
+    }
+    let s3 = Client::from_conf(s3_config.build());
     let storage = Arc::new(Storage::new(s3, config.clone()).await?);
     let command = KakaduCli {
         executable: config.kakadu_expand.clone(),

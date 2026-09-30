@@ -125,33 +125,17 @@ pub struct Storage {
 
 impl Storage {
     pub async fn new(s3: Client, config: Arc<Config>) -> anyhow::Result<Self> {
-        Self::construct(s3, config, true).await
-    }
-
-    pub async fn new_for_pruner(s3: Client, config: Arc<Config>) -> anyhow::Result<Self> {
-        Self::construct(s3, config, false).await
-    }
-
-    async fn construct(
-        s3: Client,
-        config: Arc<Config>,
-        initialize_local: bool,
-    ) -> anyhow::Result<Self> {
-        if initialize_local {
-            tokio::fs::create_dir_all(&config.local_cache_dir).await?;
-            // Old files have no in-memory access record. Start each server
-            // process with a clean local cache for trustworthy accounting.
-            let mut dir = tokio::fs::read_dir(&config.local_cache_dir).await?;
-            while let Some(entry) = dir.next_entry().await? {
-                let name = entry.file_name();
-                let name = name.to_string_lossy();
-                if entry.file_type().await?.is_file()
-                    && (name.ends_with(".jp2")
-                        || name.ends_with(".tmp")
-                        || name.starts_with("render-"))
-                {
-                    tokio::fs::remove_file(entry.path()).await?;
-                }
+        tokio::fs::create_dir_all(&config.local_cache_dir).await?;
+        // Old files have no in-memory access record. Start each server
+        // process with a clean local cache for trustworthy accounting.
+        let mut dir = tokio::fs::read_dir(&config.local_cache_dir).await?;
+        while let Some(entry) = dir.next_entry().await? {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if entry.file_type().await?.is_file()
+                && (name.ends_with(".jp2") || name.ends_with(".tmp") || name.starts_with("render-"))
+            {
+                tokio::fs::remove_file(entry.path()).await?;
             }
         }
         Ok(Self {
@@ -424,49 +408,68 @@ impl Storage {
     }
 
     pub async fn prune_derivatives(&self) -> anyhow::Result<(u64, usize)> {
-        let prefix = format!("{}derivatives/", self.config.cache_prefix);
-        let mut entries = Vec::new();
-        let mut continuation: Option<String> = None;
-        let mut bytes = 0u64;
-        loop {
-            Metrics::increment(&self.metrics.s3_requests);
-            let page = self
-                .s3
-                .list_objects_v2()
-                .bucket(&self.config.cache_bucket)
-                .prefix(&prefix)
-                .set_continuation_token(continuation.clone())
-                .send()
-                .await?;
-            for item in page.contents() {
-                if let (Some(key), Some(modified), Some(size)) =
-                    (item.key(), item.last_modified(), item.size())
-                {
-                    bytes = bytes.saturating_add(size.max(0) as u64);
-                    entries.push((*modified, key.to_owned(), size.max(0) as u64));
-                }
-            }
-            continuation = page.next_continuation_token().map(str::to_owned);
-            if continuation.is_none() {
-                break;
-            }
-        }
-        entries.sort_unstable_by_key(|a| a.0);
-        let mut deleted = 0usize;
-        for (_, key, size) in entries {
-            if bytes <= self.config.derivative_cache_limit {
-                break;
-            }
-            Metrics::increment(&self.metrics.s3_requests);
-            self.s3
-                .delete_object()
-                .bucket(&self.config.cache_bucket)
-                .key(&key)
-                .send()
-                .await?;
-            bytes = bytes.saturating_sub(size);
-            deleted += 1;
-        }
-        Ok((bytes, deleted))
+        prune_derivatives(
+            &self.s3,
+            &self.config.cache_bucket,
+            &self.config.cache_prefix,
+            self.config.derivative_cache_limit,
+            Some(&self.metrics),
+        )
+        .await
     }
+}
+
+pub async fn prune_derivatives(
+    s3: &Client,
+    cache_bucket: &str,
+    cache_prefix: &str,
+    limit: u64,
+    metrics: Option<&Metrics>,
+) -> anyhow::Result<(u64, usize)> {
+    let prefix = format!("{cache_prefix}derivatives/");
+    let mut entries = Vec::new();
+    let mut continuation: Option<String> = None;
+    let mut bytes = 0u64;
+    loop {
+        if let Some(metrics) = metrics {
+            Metrics::increment(&metrics.s3_requests);
+        }
+        let page = s3
+            .list_objects_v2()
+            .bucket(cache_bucket)
+            .prefix(&prefix)
+            .set_continuation_token(continuation.clone())
+            .send()
+            .await?;
+        for item in page.contents() {
+            if let (Some(key), Some(modified), Some(size)) =
+                (item.key(), item.last_modified(), item.size())
+            {
+                bytes = bytes.saturating_add(size.max(0) as u64);
+                entries.push((*modified, key.to_owned(), size.max(0) as u64));
+            }
+        }
+        continuation = page.next_continuation_token().map(str::to_owned);
+        if continuation.is_none() {
+            break;
+        }
+    }
+    entries.sort_unstable_by_key(|a| a.0);
+    let mut deleted = 0usize;
+    for (_, key, size) in entries {
+        if bytes <= limit {
+            break;
+        }
+        if let Some(metrics) = metrics {
+            Metrics::increment(&metrics.s3_requests);
+        }
+        s3.delete_object()
+            .bucket(cache_bucket)
+            .key(&key)
+            .send()
+            .await?;
+        bytes = bytes.saturating_sub(size);
+        deleted += 1;
+    }
+    Ok((bytes, deleted))
 }

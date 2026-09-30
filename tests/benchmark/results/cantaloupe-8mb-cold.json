@@ -1,0 +1,35 @@
+{
+  "connections": 16,
+  "docker_stats": {
+    "cantaloupe-bench": {
+      "cpu_percent_avg": 262.75,
+      "cpu_percent_peak": 496.77,
+      "memory_mib_peak": 692.3,
+      "samples": 4
+    }
+  },
+  "docker_stats_errors": [],
+  "elapsed_seconds": 10.137,
+  "error_samples": [],
+  "errors": 0,
+  "instances": 1,
+  "latency_ms": {
+    "p50": 334.43,
+    "p95": 1729.21,
+    "p99": 1943.55
+  },
+  "metrics": [
+    {
+      "delta": {},
+      "instance": "127.0.0.1:8182",
+      "source_cache_bytes": null
+    }
+  ],
+  "metrics_collected": false,
+  "peak_rss_kib_by_pid": {},
+  "requests": 288,
+  "requests_per_second": 28.41,
+  "successes": 288,
+  "tile_urls_per_instance": 64,
+  "warm": false
+}

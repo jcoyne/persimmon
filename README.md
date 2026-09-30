@@ -51,6 +51,8 @@ Required environment variables:
 
 The AWS SDK default credential chain supplies S3 credentials and region. An instance role or workload identity is preferred over static keys.
 
+`prune-cache` and `prune-cache-loop` need only `PERSIMMON_CACHE_BUCKET` from the required-variable table, plus AWS region/credentials. They also honor the optional S3 endpoint, cache prefix, cache byte limit, and prune interval. The cleanup job does not need the source bucket, public URL, admin password, TLS files, or Kakadu settings.
+
 Optional environment variables:
 
 | Variable | Default | Purpose |
@@ -75,7 +77,7 @@ Optional environment variables:
 | `PERSIMMON_MIN_TILE_SIZE` | `1024` | Advertised tile width. |
 | `PERSIMMON_KDU_EXPAND` | `kdu_expand` | Path to Kakadu 8.6 or newer executable used by the command backend or fallback. |
 | `PERSIMMON_KAKADU_NATIVE` | Unset | Path to the Persimmon adapter shared library linked against Kakadu 8.6 or newer. When set, eligible regional requests use the adapter. |
-| `PERSIMMON_HEALTH_URL` | `http://127.0.0.1:3000/healthz` | URL for the Docker health probe; set to HTTPS when using native TLS or to a different port when needed. |
+| `PERSIMMON_HEALTH_URL` | Selected from TLS settings | Optional URL override for the Docker health probe. With the default listener, the probe uses HTTPS when `PERSIMMON_TLS_CERT` is set and HTTP otherwise. Set this variable if the listener port changes. |
 
 Grant the server `s3:GetObject` on source objects and `s3:ListBucket` on the source bucket for health checks. Grant `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject`, and `s3:ListBucket` on the configured cache prefix. The cleanup command needs the same cache permissions. Keep buckets private.
 
@@ -94,7 +96,7 @@ The IIIF paths above use the default `/v3` prefix. `PERSIMMON_IIIF_V3_PREFIX` ch
 
 ## Cache cleanup
 
-Run one designated cleanup job periodically using the same image and configuration:
+Run one designated cleanup job periodically using the same image and cache-bucket configuration:
 
 ```sh
 persimmon prune-cache

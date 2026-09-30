@@ -1,0 +1,52 @@
+{
+  "connections": 16,
+  "docker_stats": {
+    "persimmon-bench": {
+      "cpu_percent_avg": 111.38,
+      "cpu_percent_peak": 177.64,
+      "memory_mib_peak": 73.78,
+      "samples": 4
+    }
+  },
+  "docker_stats_errors": [],
+  "elapsed_seconds": 10.023,
+  "error_samples": [],
+  "errors": 0,
+  "instances": 1,
+  "latency_ms": {
+    "p50": 39.28,
+    "p95": 77.25,
+    "p99": 123.35
+  },
+  "metrics": [
+    {
+      "delta": {
+        "persimmon_command_fallback_renders_total": 0.0,
+        "persimmon_command_renders_total": 0.0,
+        "persimmon_derivative_cache_hits_total": 3327.0,
+        "persimmon_derivative_cache_misses_total": 765.0,
+        "persimmon_derivative_writes_total": 64.0,
+        "persimmon_errors_total": 0.0,
+        "persimmon_native_renders_total": 64.0,
+        "persimmon_purges_total": 0.0,
+        "persimmon_render_duration_seconds_total": 3.012808,
+        "persimmon_renders_total": 64.0,
+        "persimmon_s3_requests_total": 7612.0,
+        "persimmon_source_cache_hits_total": 63.0,
+        "persimmon_source_cache_misses_total": 1.0,
+        "persimmon_source_download_bytes_total": 8276106.0,
+        "persimmon_source_downloads_total": 1.0,
+        "persimmon_source_evictions_total": 0.0
+      },
+      "instance": "127.0.0.1:3001",
+      "source_cache_bytes": 8315866.0
+    }
+  ],
+  "metrics_collected": true,
+  "peak_rss_kib_by_pid": {},
+  "requests": 3391,
+  "requests_per_second": 338.31,
+  "successes": 3391,
+  "tile_urls_per_instance": 64,
+  "warm": false
+}

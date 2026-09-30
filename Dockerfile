@@ -51,5 +51,12 @@ ENV PERSIMMON_LISTEN=0.0.0.0:3000 \
     PERSIMMON_KAKADU_NATIVE=/usr/local/lib/libpersimmon_kakadu.so
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-  CMD curl -kfsS "${PERSIMMON_HEALTH_URL:-http://127.0.0.1:3000/healthz}" >/dev/null || exit 1
+  CMD if [ -n "${PERSIMMON_HEALTH_URL:-}" ]; then \
+        health_url="$PERSIMMON_HEALTH_URL"; \
+      elif [ -n "${PERSIMMON_TLS_CERT:-}" ]; then \
+        health_url="https://127.0.0.1:3000/healthz"; \
+      else \
+        health_url="http://127.0.0.1:3000/healthz"; \
+      fi; \
+      curl -kfsS "$health_url" >/dev/null || exit 1
 ENTRYPOINT ["/usr/local/bin/persimmon"]

@@ -31,6 +31,14 @@ pub struct Config {
     pub admin_password: String,
 }
 
+pub struct PruneConfig {
+    pub cache_bucket: String,
+    pub s3_endpoint: Option<String>,
+    pub cache_prefix: String,
+    pub derivative_cache_limit: u64,
+    pub prune_interval_seconds: u64,
+}
+
 fn var(name: &str) -> anyhow::Result<String> {
     env::var(name).map_err(|_| anyhow::anyhow!("missing required environment variable {name}"))
 }
@@ -65,6 +73,30 @@ fn normalize_iiif_prefix(value: &str) -> anyhow::Result<String> {
     Ok(prefix.to_owned())
 }
 
+fn cache_prefix() -> anyhow::Result<String> {
+    let prefix = env::var("PERSIMMON_CACHE_PREFIX").unwrap_or_else(|_| "persimmon/".into());
+    if prefix.is_empty() || !prefix.ends_with('/') {
+        anyhow::bail!("cache prefix must be nonempty and end with /");
+    }
+    Ok(prefix)
+}
+
+impl PruneConfig {
+    pub fn from_env() -> anyhow::Result<Self> {
+        let config = Self {
+            cache_bucket: var("PERSIMMON_CACHE_BUCKET")?,
+            s3_endpoint: env::var("PERSIMMON_S3_ENDPOINT").ok(),
+            cache_prefix: cache_prefix()?,
+            derivative_cache_limit: value("PERSIMMON_DERIVATIVE_CACHE_BYTES", 10_000_000_000)?,
+            prune_interval_seconds: value("PERSIMMON_PRUNE_INTERVAL_SECONDS", 3_600)?,
+        };
+        if config.prune_interval_seconds == 0 {
+            anyhow::bail!("prune interval must be positive");
+        }
+        Ok(config)
+    }
+}
+
 impl Config {
     pub fn from_env() -> anyhow::Result<Self> {
         let tls_cert = env::var_os("PERSIMMON_TLS_CERT").map(PathBuf::from);
@@ -91,11 +123,7 @@ impl Config {
             &env::var("PERSIMMON_IIIF_V3_PREFIX").unwrap_or_else(|_| "/v3".into()),
         )?;
         let route_prefix = format!("{}{}", uri.path().trim_end_matches('/'), iiif_prefix);
-        let cache_prefix =
-            env::var("PERSIMMON_CACHE_PREFIX").unwrap_or_else(|_| "persimmon/".into());
-        if cache_prefix.is_empty() || !cache_prefix.ends_with('/') {
-            anyhow::bail!("cache prefix must be nonempty and end with /");
-        }
+        let cache_prefix = cache_prefix()?;
         let config = Self {
             listen: value("PERSIMMON_LISTEN", "0.0.0.0:3000".parse()?)?,
             public_base_url,
