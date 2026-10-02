@@ -11,7 +11,7 @@ This is a progress checklist. A checked item means the feature is implemented an
 - [x] Encode JPEG and PNG as required by Level 2, plus WebP; return matching MIME types and dimensions.
 - [x] Generate `info.json` with dimensions, profile, capabilities, `sizes`, and `tiles`. Make the minimum advertised size (64 px) and tile size (1024 px) configurable. Verify all advertised sizes and edge tiles at each scale on 1000 px and 4096 px fixtures; see [tests/ACCEPTANCE.md](tests/ACCEPTANCE.md).
 - [x] Implement base URI redirects, CORS, JSON-LD information responses, `GET`, `HEAD`, `OPTIONS`, cache headers, and IIIF error responses.
-- [ ] Complete release conformance validation. The official validator passed 31/33 checks with Kakadu 8.6.2 in the Linux Docker image. One failure requests optional bitonal output; the other is a validator error for confined size `!2000,3000` on a 1000×1000 source. See [tests/VALIDATOR.md](tests/VALIDATOR.md). Rerun with the chosen release build and representative sources before claiming Level 2 compliance.
+- [ ] Complete release conformance validation. The updated official validator passed 31/31 Level 2 checks with Kakadu 8.6.2 in the Linux Docker image and the CC0 fixture on 2026-09-30; see [tests/VALIDATOR.md](tests/VALIDATOR.md). Rerun with the chosen release build and representative archival color and grayscale sources before claiming production Level 2 compliance.
 
 ## Kakadu and image processing
 
