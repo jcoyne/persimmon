@@ -125,7 +125,7 @@ Grant the server `s3:GetObject` on source objects and `s3:ListBucket` on the sou
 
 ## Endpoints
 
-- `GET /healthz` returns `OK` when both S3 buckets can be queried and Kakadu is available. Dependency checks are cached for five seconds.
+- `GET /healthz` returns `200` with the plain-text body `OK` when both S3 buckets can be queried and Kakadu is available. Otherwise it returns `503` with JSON giving an overall `status` and a result for each of `cache_bucket`, `source_bucket`, and `kakadu`; a failed check includes a short `error` such as an S3 error code (`AccessDenied`, `NoSuchBucket`), `could not connect to S3`, `timed out`, or the Kakadu version problem. Full error details are logged at `WARN` with the check name. Each check times out after three seconds, and results are cached for five seconds.
 - `GET /metrics` returns per-instance Prometheus counters for S3 calls, source and derivative cache activity, rendering time, purges, and errors. Restrict this route at the load balancer if the metrics should remain internal.
 - `GET /v3/{identifier}/info.json` returns IIIF image information. It serves JSON-LD by default and `application/json` when requested with `Accept`; responses include `Vary: Accept`.
 - `GET /v3/{identifier}/{region}/{size}/{rotation}/{quality}.{format}` returns an image.
