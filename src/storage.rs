@@ -329,7 +329,7 @@ impl Storage {
             }
         }
         Metrics::increment(&self.metrics.source_misses);
-        let key = format!("{identifier}.jp2");
+        let key = identifier.to_owned();
         let _download_permit = self.downloads.acquire().await?;
         Metrics::increment(&self.metrics.s3_requests);
         let output = match self

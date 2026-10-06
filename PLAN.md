@@ -23,7 +23,7 @@ This is a progress checklist. A checked item means the feature is implemented an
 
 ## S3 sources and caches
 
-- [x] Read private S3 source objects through the AWS credential chain. Decode an identifier once and append `.jp2` to form its S3 key; `a%2Fb` resolves to `a/b.jp2`. Never use the identifier as a local path.
+- [x] Read private S3 source objects through the AWS credential chain. Decode an identifier once and use it unchanged as its S3 key; `a%2Fb.jp2` resolves to `a/b.jp2`. Never use the identifier as a local path.
 - [x] Keep a per-instance source cache with a configurable 2 GB default, LRU eviction, coalesced simultaneous downloads, and source leases that prevent eviction while in use. An active lease can temporarily put the cache over its target; eviction runs when it is released.
 - [x] Store generated images in a shared private S3 cache keyed by API version, identifier, request, format, and purge generation. Coalesce duplicate rendering within an instance and avoid overwriting another instance's result with conditional writes.
 - [x] Stream cache-hit derivatives from S3 to HTTP clients without buffering the full object. Verify cold and warm bytes match and `HEAD` retains the correct `Content-Length` locally; see [tests/ACCEPTANCE.md](tests/ACCEPTANCE.md).

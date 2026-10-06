@@ -41,7 +41,7 @@ On 2026-09-30, `check_advertised.py` verified a synthetic 4096×4096 JP2 with th
 Run the checker against a service id from `info.json`:
 
 ```sh
-python3 tests/check_advertised.py --service-url https://images.example.edu/v3/example
+python3 tests/check_advertised.py --service-url https://images.example.edu/v3/example.jp2
 ```
 
 Add `--insecure` only for a local self-signed test certificate. The tool streams response bodies so a large advertised image does not fill client memory. These fixture checks do not replace validation with representative archival JP2s.

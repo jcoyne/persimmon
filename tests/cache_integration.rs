@@ -68,7 +68,7 @@ async fn concurrent_source_reuse_and_cross_instance_purge() {
     client
         .put_object()
         .bucket(&source_bucket)
-        .key("a/b.jp2")
+        .key("a/b")
         .body(Bytes::from_static(b"old source").into())
         .send()
         .await
@@ -141,7 +141,7 @@ async fn concurrent_source_reuse_and_cross_instance_purge() {
     client
         .put_object()
         .bucket(&source_bucket)
-        .key("a/b.jp2")
+        .key("a/b")
         .body(Bytes::from_static(b"new source").into())
         .send()
         .await
@@ -156,7 +156,7 @@ async fn concurrent_source_reuse_and_cross_instance_purge() {
     client
         .put_object()
         .bucket(&source_bucket)
-        .key("c.jp2")
+        .key("c")
         .body(Bytes::from_static(b"cccccccc").into())
         .send()
         .await
@@ -173,7 +173,7 @@ async fn concurrent_source_reuse_and_cross_instance_purge() {
     client
         .put_object()
         .bucket(&source_bucket)
-        .key("d.jp2")
+        .key("d")
         .body(Bytes::from_static(b"dddddddd").into())
         .send()
         .await

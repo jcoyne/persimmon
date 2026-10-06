@@ -71,9 +71,9 @@ print("Uploaded example.jp2")
 PY
 ```
 
-To upload your own image, replace the first `upload_file` argument with its local JP2 path and the third argument with `<identifier>.jp2`. For example, key `my-image.jp2` is requested using identifier `my-image`.
+To upload your own image, replace the first `upload_file` argument with its local JP2 path and the third argument with the identifier. The identifier is the complete S3 key, so key `my-image.jp2` is requested using identifier `my-image.jp2`.
 
-For a Persimmon container on Docker Desktop, set `PERSIMMON_S3_ENDPOINT=http://host.docker.internal:5001`, `PERSIMMON_SOURCE_BUCKET=persimmon-local-source`, `PERSIMMON_CACHE_BUCKET=persimmon-local-cache`, `AWS_REGION=us-east-1`, and dummy `AWS_ACCESS_KEY_ID=test` and `AWS_SECRET_ACCESS_KEY=test`. Also set the public URL and admin credentials described below, and configure native TLS or a trusted HTTPS proxy. On Linux Docker, add `--add-host=host.docker.internal:host-gateway` to `docker run` to make the same endpoint name available. The uploaded image is requested as identifier `example`, for example `/v3/example/info.json`; Persimmon appends `.jp2` when finding its S3 object. For an identifier containing a slash, upload key `a/b.jp2` and request `a%2Fb`.
+For a Persimmon container on Docker Desktop, set `PERSIMMON_S3_ENDPOINT=http://host.docker.internal:5001`, `PERSIMMON_SOURCE_BUCKET=persimmon-local-source`, `PERSIMMON_CACHE_BUCKET=persimmon-local-cache`, `AWS_REGION=us-east-1`, and dummy `AWS_ACCESS_KEY_ID=test` and `AWS_SECRET_ACCESS_KEY=test`. Also set the public URL and admin credentials described below, and configure native TLS or a trusted HTTPS proxy. On Linux Docker, add `--add-host=host.docker.internal:host-gateway` to `docker run` to make the same endpoint name available. The uploaded image is requested as identifier `example.jp2`, for example `/v3/example.jp2/info.json`; the identifier is used unchanged as its S3 key. For a key containing a slash, such as `a/b.jp2`, request `a%2Fb.jp2`.
 
 Moto keeps this test data only while that server process runs. Stop it with Ctrl-C when finished. Binding Moto to `0.0.0.0` allows the container to reach it, so use this setup on a trusted local machine.
 
@@ -84,7 +84,7 @@ Required environment variables:
 | Variable | Purpose |
 | --- | --- |
 | `PERSIMMON_PUBLIC_BASE_URL` | Public origin and optional deployment path, for example `https://images.example.edu` or `https://images.example.edu/iiif`. |
-| `PERSIMMON_SOURCE_BUCKET` | Private S3 bucket containing sources. Identifier `a/b` resolves to `a/b.jp2`. |
+| `PERSIMMON_SOURCE_BUCKET` | Private S3 bucket containing sources. Identifier `a/b.jp2` resolves to key `a/b.jp2`; no extension is added. |
 | `PERSIMMON_CACHE_BUCKET` | Private S3 bucket for derivatives and purge markers. May be the same bucket as the source if prefixes and IAM policy keep them separate. |
 | `PERSIMMON_ADMIN_USER` | Basic-auth admin username for `POST /admin/purge`. |
 | `PERSIMMON_ADMIN_PASSWORD` | Basic-auth admin password, supplied as a runtime secret. |
