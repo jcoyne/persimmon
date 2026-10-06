@@ -1,0 +1,45 @@
+{
+  "connections": 64,
+  "docker_stats": {},
+  "docker_stats_errors": [],
+  "elapsed_seconds": 15.083,
+  "error_samples": [],
+  "errors": 0,
+  "instances": 1,
+  "latency_ms": {
+    "p50": 60.63,
+    "p95": 71.26,
+    "p99": 102.87
+  },
+  "metrics": [
+    {
+      "delta": {
+        "persimmon_command_fallback_renders_total": 0.0,
+        "persimmon_command_renders_total": 0.0,
+        "persimmon_derivative_cache_hits_total": 15287.0,
+        "persimmon_derivative_cache_misses_total": 0.0,
+        "persimmon_derivative_writes_total": 0.0,
+        "persimmon_errors_total": 0.0,
+        "persimmon_native_renders_total": 0.0,
+        "persimmon_purges_total": 0.0,
+        "persimmon_render_duration_seconds_total": 0.0,
+        "persimmon_renders_total": 0.0,
+        "persimmon_s3_requests_total": 30576.0,
+        "persimmon_source_cache_hits_total": 0.0,
+        "persimmon_source_cache_misses_total": 0.0,
+        "persimmon_source_download_bytes_total": 0.0,
+        "persimmon_source_downloads_total": 0.0,
+        "persimmon_source_evictions_total": 0.0
+      },
+      "instance": "sul-imageserver-test-a.stanford.edu",
+      "source_cache_bytes": 17925169.0
+    }
+  ],
+  "metrics_collected": true,
+  "peak_rss_kib_by_pid": {},
+  "requests": 15287,
+  "requests_per_second": 1013.51,
+  "successes": 15287,
+  "tile_urls_per_instance": 32,
+  "warm": true
+}

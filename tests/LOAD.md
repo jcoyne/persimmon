@@ -17,6 +17,45 @@ python3 tests/load_tiles.py \
 
 For a large source, add `--max-tiles 64` to keep the test focused on a repeated adjacent group and make the warm phase practical. Without it, the script covers the entire image grid.
 
+## Weka-backed single-instance test baseline, 2026-10-06
+
+The deployed `7db27dc4246e` test image served one 6048 × 4024 archival color
+source through Kamal proxy and Weka S3. One client ran 15-second phases with
+8 connections and the first 32 adjacent 256 px tiles. The first phase started
+with these derivatives uncached but the source already in the instance cache;
+the instance reported 17,925,169 cached-source bytes in total. The second
+phase warmed all 32 derivatives before timing.
+
+| Phase | Requests/s | Errors | p50 | p95 | p99 | S3 calls/request | Derivative hits | Native renders | Command fallbacks |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Initially uncached derivatives | 113.45 | 0/1709 | 60.63 ms | 146.74 ms | 172.69 ms | 2.14 | 1677 | 32 | 0 |
+| Warm derivatives | 130.54 | 0/1966 | 60.42 ms | 64.27 ms | 70.19 ms | 2.00 | 1966 | 0 | 0 |
+| Warm derivatives, 32 connections | 520.84 | 0/7846 | 59.84 ms | 65.09 ms | 75.61 ms | 2.00 | 7846 | 0 | 0 |
+| Warm derivatives, 64 connections | 1013.51 | 0/15287 | 60.63 ms | 71.26 ms | 102.87 ms | 2.00 | 15287 | 0 | 0 |
+
+The first phase recorded 32 derivative writes, 208 miss lookups, and zero
+source downloads. The warm phase had zero misses and writes. Metrics reported
+zero server errors in both phases. The measurement used one server instance
+and one load generator. After the 64-connection run, `/proc/1/status` in the
+web container reported `VmHWM: 63444 kB` and `VmRSS: 63444 kB` (about 62 MiB).
+`VmHWM` is the web process's peak resident memory since it started, so this
+observation cannot isolate the load phase. CPU and container-level peak memory
+were not sampled. The 8 client connections and roughly 60 ms warm median
+bound observed rate near 133
+requests/s even if the server has additional capacity; this is not a capacity
+limit or evidence for the several-instance throughput target.
+
+The operator's JSON reports are retained as
+[initially uncached derivatives](benchmark/results/deployed-weka-color-8conn-initial.json)
+and [warm derivatives at 8 connections](benchmark/results/deployed-weka-color-8conn-warm.json),
+plus [warm derivatives at 32 connections](benchmark/results/deployed-weka-color-32conn-warm.json).
+The [64-connection warm report](benchmark/results/deployed-weka-color-64conn-warm.json)
+used the same source and tile set for 15 seconds. Warm throughput rose roughly
+with client concurrency from 8 to 32 to 64 connections while median latency
+stayed near 60 ms; p99 reached 102.87 ms at 64 connections. These runs still
+lack CPU and load-phase peak-memory measurements and do not establish the server's
+saturation point or the several-instance target.
+
 ## Local development baseline, 2026-09-29
 
 Two Rust server processes on one macOS host, 16 persistent HTTP/1.1 connections, a 1000×1000 CC0 JP2 validator fixture, 16 adjacent 256 px tiles, a local Moto S3 service, and a Kakadu 8.4.1 command-line development stand-in were used for five-second measurements. These numbers do **not** validate the Linux image, the release Kakadu native adapter, AWS S3 behavior, or the production throughput target.
@@ -67,4 +106,4 @@ Two emulated Linux `amd64` containers on a macOS `arm64` host served these JP2s 
 
 A Docker memory spot sample during an earlier 100 MB cold pass was 142 and 174 MiB for the two containers; it is not a peak measurement. These rates are dominated by the local test client, Moto, and `amd64` emulation and do not establish the production throughput target. The consistently two S3 calls per warm request come from the purge-generation HEAD and derivative GET.
 
-Repeat the benchmark with the release Kakadu SDK (8.6 or newer), the native adapter, Linux `amd64` containers, representative 8 MB and 100 MB JP2 files, and AWS S3. Run both cold and warm phases at multiple concurrency levels, record server CPU and memory peaks, and retain the reports before accepting the performance target.
+Repeat the benchmark with the release Kakadu SDK (8.6 or newer), the native adapter, Linux `amd64` containers, representative 8 MB and 100 MB JP2 files, and the target Weka S3 service. Run both cold and warm phases at multiple concurrency levels, record server CPU and memory peaks, and retain the reports before accepting the performance target.

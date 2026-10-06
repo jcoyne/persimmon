@@ -8,13 +8,15 @@ The server parses IIIF Image API 3.0 routes, reads JP2 sources from S3, caches l
 
 **The project is still under development.** It passed the upstream IIIF v3 Level 2 validator against one small JP2 fixture, but has not completed release conformance validation or a production multi-instance load test. The native adapter decodes regions at Kakadu resolution levels before Rust applies final scaling and encoding. Requests whose reduced decode exceeds the native limit, or whose component geometry is unsupported by the adapter, attempt the Kakadu `kdu_expand` command fallback. The fallback has its own decoded-pixel limit and can also reject a large request. The adapter still needs validation with the release Kakadu SDK and concurrent Linux load tests. Do not claim production Level 2 compliance or the throughput target from the current code alone.
 
-The [IIIF Image API validator](https://github.com/IIIF/image-validator) ran against the local server with its [CC0 JP2 test image](https://iiif.io/api/image/validator/download/), supplied in [tests/fixtures/iiif-validator.jp2](tests/fixtures/iiif-validator.jp2). The updated upstream validator passed all 31 selected v3 Level 2 checks against the Linux `amd64` Docker image with the Kakadu 8.6.2 native adapter. The exact revision and output are documented in [tests/VALIDATOR.md](tests/VALIDATOR.md); validation with representative source images and the final release build is still required.
+The [IIIF Image API validator](https://github.com/IIIF/image-validator) ran with its [CC0 JP2 test image](https://iiif.io/api/image/validator/download/), supplied in [tests/fixtures/iiif-validator.jp2](tests/fixtures/iiif-validator.jp2). All 31 selected v3 Level 2 checks passed against both the local Linux `amd64` Docker image with the Kakadu 8.6.2 native adapter and the reported `7db27dc4246e` test deployment. The deployed archival color image also passed the public output checks in [tests/DEPLOYMENT.md](tests/DEPLOYMENT.md). The validator revisions and evidence are in [tests/VALIDATOR.md](tests/VALIDATOR.md); Weka S3 and performance release acceptance remain open.
 
 The optional S3 integration test covers concurrent reuse of one local source, local LRU eviction, source replacement after purge on two instances, shared derivative invalidation, and cache pruning. Run a local S3-compatible test server such as Moto, then use `PERSIMMON_TEST_S3_ENDPOINT=http://127.0.0.1:5001 cargo test --test cache_integration -- --ignored`. The test creates its own uniquely named buckets.
 
 Local source files in active use are retained until their requests finish. If this briefly takes the source cache over its limit, release of the last active lease triggers LRU eviction back toward the configured limit. A source larger than the limit can still be served, then is removed after its request finishes. Set `PERSIMMON_LOCAL_CACHE_BYTES=0` to keep sources only while requests use them.
 
 The reproducible adjacent-tile benchmark and two-instance development baselines are in [tests/LOAD.md](tests/LOAD.md). They include native Kakadu 8.6.2 Docker runs with synthetic 8 MB and 100 MB JP2 files and local Moto S3. Production performance remains unverified. The two-container TLS, authentication, and purge check is in [tests/ACCEPTANCE.md](tests/ACCEPTANCE.md).
+
+For a deployed instance, use the read-only smoke check and release evidence checklist in [tests/DEPLOYMENT.md](tests/DEPLOYMENT.md).
 
 ## Build
 
@@ -101,7 +103,7 @@ Optional environment variables:
 | `PERSIMMON_IIIF_V3_PREFIX` | `/v3` | Path appended to the public base URL for all IIIF v3 endpoints. Set to `/` or an empty string to serve IIIF at the base path. |
 | `PERSIMMON_TLS_CERT`, `PERSIMMON_TLS_KEY` | Unset | PEM certificate and key for native TLS; set both. Without them, put the server behind a trusted TLS proxy and use an HTTPS public base URL. |
 | `PERSIMMON_CACHE_PREFIX` | `persimmon/` | S3 namespace for derivatives and purge markers. |
-| `PERSIMMON_S3_ENDPOINT` | Unset | Optional S3-compatible endpoint for local tests. Forces path-style requests. |
+| `PERSIMMON_S3_ENDPOINT` | Unset | S3-compatible endpoint, including the release Weka service. Forces path-style requests. |
 | `PERSIMMON_LOCAL_CACHE_DIR` | `/var/cache/persimmon` | Per-instance JP2 cache and temporary bitmap directory. |
 | `PERSIMMON_LOCAL_CACHE_BYTES` | `2000000000` | Local source cache target in bytes. |
 | `PERSIMMON_DERIVATIVE_CACHE_BYTES` | `10000000000` | Shared S3 derivative cache target in bytes. |
