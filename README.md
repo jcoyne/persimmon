@@ -84,7 +84,7 @@ Required environment variables:
 | Variable | Purpose |
 | --- | --- |
 | `PERSIMMON_PUBLIC_BASE_URL` | Public origin and optional deployment path, for example `https://images.example.edu` or `https://images.example.edu/iiif`. |
-| `PERSIMMON_SOURCE_BUCKET` | Private S3 bucket containing sources. Identifier `a/b.jp2` resolves to key `a/b.jp2`; no extension is added. |
+| `PERSIMMON_SOURCE_BUCKET` | Private S3 bucket containing sources. Identifier `a/b.jp2` resolves to key `a/b.jp2`; no extension is added. Identifiers with empty, `.`, or `..` path segments are rejected with `400`. |
 | `PERSIMMON_CACHE_BUCKET` | Private S3 bucket for derivatives and purge markers. May be the same bucket as the source if prefixes and IAM policy keep them separate. |
 | `PERSIMMON_ADMIN_USER` | Basic-auth admin username for `POST /admin/purge`. |
 | `PERSIMMON_ADMIN_PASSWORD` | Basic-auth admin password, supplied as a runtime secret. |

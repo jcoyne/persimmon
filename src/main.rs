@@ -391,10 +391,7 @@ async fn purge(
         )
             .into_response();
     }
-    if input.identifier.is_empty()
-        || input.identifier.contains('\0')
-        || input.identifier.starts_with('/')
-    {
+    if !iiif::valid_identifier(&input.identifier) {
         return text_response(StatusCode::BAD_REQUEST, "invalid identifier");
     }
     match state.storage.purge(&input.identifier).await {

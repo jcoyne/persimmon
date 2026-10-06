@@ -233,10 +233,20 @@ fn decode_identifier(raw: &str) -> Result<String, Error> {
         }
     }
     let identifier = String::from_utf8(bytes).map_err(|_| Error("identifier is not UTF-8"))?;
-    if identifier.is_empty() || identifier.contains('\0') || identifier.starts_with('/') {
+    if !valid_identifier(&identifier) {
         return Err(Error("invalid identifier"));
     }
     Ok(identifier)
+}
+
+/// The decoded identifier is used unchanged as an S3 key. Reject empty and
+/// dot segments so a path-normalizing S3 endpoint or proxy cannot resolve a
+/// key outside the source bucket.
+pub fn valid_identifier(identifier: &str) -> bool {
+    !identifier.contains('\0')
+        && identifier
+            .split('/')
+            .all(|segment| !segment.is_empty() && segment != "." && segment != "..")
 }
 
 /// Parse a raw HTTP path after removal of an optional service prefix. The
@@ -370,6 +380,28 @@ mod tests {
         };
         assert_eq!(req.identifier, "a/b");
         assert_eq!(req.size, Size::Confined(256, 256));
+    }
+
+    #[test]
+    fn rejects_identifiers_with_empty_or_dot_segments() {
+        for id in [
+            "..",
+            ".",
+            "%2E%2E",
+            "..%2Fother-bucket%2Fsecret",
+            "a%2F..%2F..%2Fsecret",
+            "a%2F.%2Fb",
+            "a%2F..",
+            "%2Fa",
+            "a%2F",
+            "a%2F%2Fb",
+            "a%00b",
+        ] {
+            assert!(parse_route(&format!("/{id}/info.json")).is_err(), "{id}");
+        }
+        for id in ["a..b", "..a", "a.", ".hidden", "a%2F..b%2Fc.jp2"] {
+            assert!(parse_route(&format!("/{id}/info.json")).is_ok(), "{id}");
+        }
     }
 
     #[test]
