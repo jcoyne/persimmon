@@ -68,12 +68,16 @@ def main():
         ("jpg", "image/jpeg", b"\xff\xd8"),
         ("png", "image/png", b"\x89PNG\r\n\x1a\n"),
         ("webp", "image/webp", b"RIFF"),
+        ("avif", "image/avif", b"ftypavif"),
     ]:
         url = image_root + "." + extension
         status, headers, body = request(opener, url)
         check(status == 200, f"{extension}: HTTP {status}")
         check(headers.get_content_type() == mime, f"{extension}: wrong Content-Type")
-        check(body.startswith(magic), f"{extension}: wrong image signature")
+        if extension == "avif":
+            check(body[4:12] == magic, "avif: wrong image signature")
+        else:
+            check(body.startswith(magic), f"{extension}: wrong image signature")
         check(len(body) == int(headers.get("Content-Length", "-1")), f"{extension}: wrong Content-Length")
         check("max-age=86400" in headers.get("Cache-Control", ""), f"{extension}: wrong cache policy")
         if extension == "webp":
@@ -94,7 +98,7 @@ def main():
     status, headers, body = request(opener, invalid_url)
     check(status == 400, f"invalid identifier: expected HTTP 400, got {status}")
 
-    print(f"PASS: {service}: redirect, info, JPEG/PNG/WebP, HEAD, cache headers, CORS, invalid identifier")
+    print(f"PASS: {service}: redirect, info, JPEG/PNG/WebP/AVIF, HEAD, cache headers, CORS, invalid identifier")
     print(f"Image dimensions: {info['width']} x {info['height']}")
 
 

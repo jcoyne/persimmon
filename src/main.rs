@@ -14,7 +14,8 @@ use axum::{
     Router,
     body::Body,
     extract::{Json, State},
-    http::{HeaderMap, HeaderValue, Method, StatusCode, Uri, header},
+    http::{HeaderMap, HeaderValue, Method, Request, StatusCode, Uri, header},
+    middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post},
 };
@@ -31,11 +32,8 @@ use persimmon::{
 use serde::{Deserialize, Serialize};
 use subtle::ConstantTimeEq;
 use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore};
-use tower_http::{
-    cors::CorsLayer,
-    trace::{DefaultOnResponse, TraceLayer},
-};
-use tracing::{Level, error, info, warn};
+use tower_http::cors::CorsLayer;
+use tracing::{Instrument, error, info, warn};
 
 struct AppState {
     config: Arc<Config>,
@@ -101,6 +99,44 @@ fn iiif_path<'a>(raw_path: &'a str, route_prefix: &str) -> Option<&'a str> {
     raw_path
         .strip_prefix(route_prefix)
         .filter(|path| path.starts_with('/'))
+}
+
+fn requested_identifier(raw_path: &str, route_prefix: &str) -> Option<String> {
+    let path = iiif_path(raw_path, route_prefix)?;
+    match iiif::parse_route(path).ok()? {
+        Route::Base(id) | Route::Info(id) => Some(id),
+        Route::Image(request) => Some(request.identifier),
+    }
+}
+
+async fn log_request(
+    State(config): State<Arc<Config>>,
+    request: Request<Body>,
+    next: Next,
+) -> Response {
+    let method = request.method().clone();
+    let uri = request.uri().clone();
+    let version = request.version();
+    let identifier = requested_identifier(uri.path(), &config.route_prefix);
+    let started = Instant::now();
+    let span = tracing::info_span!("request", %method, %uri, ?version);
+    let response = next.run(request).instrument(span.clone()).await;
+    let status = response.status().as_u16();
+    let latency = started.elapsed();
+    if let Some(identifier) = identifier {
+        info!(
+            parent: &span,
+            %method,
+            %uri,
+            %identifier,
+            status,
+            ?latency,
+            "finished processing request"
+        );
+    } else {
+        info!(parent: &span, %method, %uri, status, ?latency, "finished processing request");
+    }
+    response
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -448,8 +484,8 @@ fn info_document(config: &Config, identifier: &str, width: u32, height: u32) -> 
         "width": width,
         "height": height,
         "maxArea": config.max_output_pixels,
-        "preferredFormats": ["webp"],
-        "extraFormats": ["webp"],
+        "preferredFormats": ["webp", "avif", "jpg"],
+        "extraFormats": ["webp", "avif"],
         "extraQualities": ["color", "gray"]
     });
     if !sizes.is_empty() {
@@ -812,7 +848,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/admin/purge", post(purge))
         .fallback(iiif_handler)
         .layer(CorsLayer::permissive())
-        .layer(TraceLayer::new_for_http().on_response(DefaultOnResponse::new().level(Level::INFO)))
+        .layer(middleware::from_fn_with_state(config.clone(), log_request))
         .with_state(state);
     info!(listen = %config.listen, "persimmon starting");
     if let (Some(cert), Some(key)) = (&config.tls_cert, &config.tls_key) {
@@ -832,7 +868,7 @@ async fn main() -> anyhow::Result<()> {
 mod tests {
     use super::{
         HealthCheck, HealthChecks, HealthReport, InfoMedia, RenderedBytes, iiif_path,
-        image_response, info_media,
+        image_response, info_media, requested_identifier,
     };
     use axum::http::{HeaderMap, StatusCode, header};
     use bytes::Bytes;
@@ -853,6 +889,20 @@ mod tests {
         assert_eq!(iiif_path("/iiif/v30/id/info.json", "/iiif/v3"), None);
         assert_eq!(iiif_path("/iiifx/id/info.json", "/iiif"), None);
         assert_eq!(iiif_path("/iiif/v3", "/iiif/v3"), None);
+    }
+
+    #[test]
+    fn request_log_uses_decoded_iiif_identifier() {
+        assert_eq!(
+            requested_identifier("/images/v3/a%2Fb.jp2/info.json", "/images/v3"),
+            Some("a/b.jp2".to_owned())
+        );
+        assert_eq!(
+            requested_identifier("/images/v3/validator/full/max/0/default.jpg", "/images/v3"),
+            Some("validator".to_owned())
+        );
+        assert_eq!(requested_identifier("/healthz", "/images/v3"), None);
+        assert_eq!(requested_identifier("/admin/purge", ""), None);
     }
 
     #[tokio::test]

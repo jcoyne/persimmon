@@ -30,6 +30,7 @@ pub enum Format {
     Jpeg,
     Png,
     Webp,
+    Avif,
 }
 
 impl Format {
@@ -38,6 +39,7 @@ impl Format {
             Self::Jpeg => "image/jpeg",
             Self::Png => "image/png",
             Self::Webp => "image/webp",
+            Self::Avif => "image/avif",
         }
     }
 }
@@ -209,6 +211,7 @@ fn parse_quality_format(s: &str) -> Result<(Quality, Format), Error> {
         "jpg" => Format::Jpeg,
         "png" => Format::Png,
         "webp" => Format::Webp,
+        "avif" => Format::Avif,
         _ => return Err(Error("format is not supported")),
     };
     Ok((quality, format))

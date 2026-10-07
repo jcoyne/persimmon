@@ -91,6 +91,7 @@ fn transform_encode(
         Format::Jpeg => ImageFormat::Jpeg,
         Format::Png => ImageFormat::Png,
         Format::Webp => ImageFormat::WebP,
+        Format::Avif => ImageFormat::Avif,
     };
     let mut data = Cursor::new(Vec::new());
     image.write_to(&mut data, format)?;
@@ -423,6 +424,23 @@ mod tests {
     use super::*;
     use crate::iiif::{self, Route};
     use std::sync::Arc;
+
+    #[test]
+    fn encodes_color_and_gray_avif() {
+        let source = DynamicImage::ImageRgb8(RgbImage::from_fn(16, 16, |x, y| {
+            image::Rgb([x as u8 * 8, y as u8 * 8, 64])
+        }));
+        for quality in ["default", "gray"] {
+            let Route::Image(request) =
+                iiif::parse_route(&format!("/test/full/max/0/{quality}.avif")).unwrap()
+            else {
+                panic!("expected image request");
+            };
+            let bytes = transform_encode(source.clone(), (16, 16), &request).unwrap();
+            assert_eq!(&bytes[4..12], b"ftypavif");
+            assert_eq!(request.format.mime(), "image/avif");
+        }
+    }
 
     #[tokio::test]
     #[ignore = "requires local Kakadu and a JP2 fixture"]
