@@ -653,8 +653,9 @@ async fn iiif_handler_inner(state: Arc<AppState>, uri: Uri, headers: &HeaderMap)
                 .min(state.config.max_decode_pixels)
                 // Kakadu's packed output, the RGB copy, resizing, and encoding
                 // can coexist. Charge a conservative peak per decoded pixel.
-                // JPEG XL decodes through 32-bit float planes first.
-                .saturating_mul(if is_jxl { 24 } else { 12 });
+                // JPEG XL decodes through 32-bit float planes first; a lossy
+                // 24 MP source measured about 27 bytes per pixel at peak.
+                .saturating_mul(if is_jxl { 32 } else { 12 });
             let needed = estimated_bytes.div_ceil(1_048_576).max(1);
             let available = state.config.max_temp_bitmap_bytes / 1_048_576;
             if needed > available {

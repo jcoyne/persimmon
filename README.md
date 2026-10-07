@@ -51,3 +51,4 @@ Persimmon is configured with environment variables. See [Configuring.md](Configu
 
 - [Developers.md](Developers.md): project status, local testing, and internals
 - [PLAN.md](PLAN.md): design goals and acceptance criteria
+- [JPEGXL_NOTES.md](JPEGXL_NOTES.md): how JPEG XL sources are handled and their performance trade-offs
