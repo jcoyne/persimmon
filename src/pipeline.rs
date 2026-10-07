@@ -6,7 +6,11 @@ use std::{
 };
 
 use anyhow::Context;
-use image::{DynamicImage, ImageFormat, RgbImage, imageops::FilterType};
+use image::{
+    DynamicImage, ImageFormat, RgbImage,
+    codecs::{avif::AvifEncoder, jpeg::JpegEncoder},
+    imageops::FilterType,
+};
 use libloading::Library;
 use tokio::process::Command;
 use zune_core::{bit_depth::BitDepth, colorspace::ColorSpace, options::EncoderOptions};
@@ -63,6 +67,27 @@ mod version_tests {
     }
 }
 
+/// Settings for the lossy output encoders.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EncodeSettings {
+    /// JPEG quality, 1 (worst) to 100 (best).
+    pub jpeg_quality: u8,
+    /// AVIF quality, 1 (worst) to 100 (best).
+    pub avif_quality: u8,
+    /// AVIF encoder speed, 1 (slowest, smallest files) to 10 (fastest).
+    pub avif_speed: u8,
+}
+
+impl Default for EncodeSettings {
+    fn default() -> Self {
+        Self {
+            jpeg_quality: 75,
+            avif_quality: 80,
+            avif_speed: 10,
+        }
+    }
+}
+
 struct TemporaryBitmap(PathBuf);
 
 impl Drop for TemporaryBitmap {
@@ -75,6 +100,7 @@ fn transform_encode(
     mut image: DynamicImage,
     size: (u32, u32),
     request: &ImageRequest,
+    settings: EncodeSettings,
 ) -> anyhow::Result<Vec<u8>> {
     if image.width() != size.0 || image.height() != size.1 {
         image = image.resize_exact(size.0, size.1, FilterType::Lanczos3);
@@ -108,15 +134,21 @@ fn transform_encode(
             .map_err(|e| anyhow::anyhow!("JPEG XL encode failed: {e:?}"))?;
         return Ok(data);
     }
-    let format = match request.format {
-        Format::Jpeg => ImageFormat::Jpeg,
-        Format::Png => ImageFormat::Png,
-        Format::Webp => ImageFormat::WebP,
-        Format::Avif => ImageFormat::Avif,
-        Format::Jxl => unreachable!(),
-    };
     let mut data = Cursor::new(Vec::new());
-    image.write_to(&mut data, format)?;
+    match request.format {
+        Format::Jpeg => image.write_with_encoder(JpegEncoder::new_with_quality(
+            &mut data,
+            settings.jpeg_quality,
+        ))?,
+        Format::Avif => image.write_with_encoder(AvifEncoder::new_with_speed_quality(
+            &mut data,
+            settings.avif_speed,
+            settings.avif_quality,
+        ))?,
+        Format::Png => image.write_to(&mut data, ImageFormat::Png)?,
+        Format::Webp => image.write_to(&mut data, ImageFormat::WebP)?,
+        Format::Jxl => unreachable!(),
+    }
     Ok(data.into_inner())
 }
 
@@ -150,6 +182,7 @@ impl KakaduCli {
         region: Rect,
         size: (u32, u32),
         request: &ImageRequest,
+        encoding: EncodeSettings,
     ) -> anyhow::Result<Vec<u8>> {
         let temp = self
             .temp_dir
@@ -216,7 +249,7 @@ impl KakaduCli {
         let request = request.clone();
         tokio::task::spawn_blocking(move || {
             let image = image::open(&path).context("read Kakadu bitmap")?;
-            transform_encode(image, size, &request)
+            transform_encode(image, size, &request, encoding)
         })
         .await?
     }
@@ -312,6 +345,7 @@ impl KakaduNative {
         region: Rect,
         size: (u32, u32),
         request: &ImageRequest,
+        encoding: EncodeSettings,
     ) -> anyhow::Result<Vec<u8>> {
         let path = CString::new(source.as_os_str().as_bytes())?;
         let decode = self.decode;
@@ -353,7 +387,7 @@ impl KakaduNative {
             let rgb = unsafe { std::slice::from_raw_parts(buffer.pointer, length).to_vec() };
             let image = RgbImage::from_raw(width, height, rgb)
                 .context("native RGB buffer has invalid dimensions")?;
-            transform_encode(DynamicImage::ImageRgb8(image), size, &request)
+            transform_encode(DynamicImage::ImageRgb8(image), size, &request, encoding)
         })
         .await?
     }
@@ -396,11 +430,12 @@ impl KakaduBackend {
         region: Rect,
         size: (u32, u32),
         request: &ImageRequest,
+        encoding: EncodeSettings,
     ) -> anyhow::Result<RenderResult> {
         match self {
             Self::Command(command) => {
                 let bytes = command
-                    .render(source, source_dimensions, region, size, request)
+                    .render(source, source_dimensions, region, size, request, encoding)
                     .await?;
                 Ok(RenderResult {
                     bytes,
@@ -412,17 +447,17 @@ impl KakaduBackend {
                     && u64::from(region.width) * u64::from(region.height) > native.max_decode_pixels
                 {
                     let bytes = fallback
-                        .render(source, source_dimensions, region, size, request)
+                        .render(source, source_dimensions, region, size, request, encoding)
                         .await?;
                     Ok(RenderResult {
                         bytes,
                         path: RenderPath::CommandFallback,
                     })
                 } else {
-                    match native.render(source, region, size, request).await {
+                    match native.render(source, region, size, request, encoding).await {
                         Err(e) if e.is::<NativeFallback>() => {
                             let bytes = fallback
-                                .render(source, source_dimensions, region, size, request)
+                                .render(source, source_dimensions, region, size, request, encoding)
                                 .await?;
                             Ok(RenderResult {
                                 bytes,
@@ -458,9 +493,40 @@ mod tests {
             else {
                 panic!("expected image request");
             };
-            let bytes = transform_encode(source.clone(), (16, 16), &request).unwrap();
+            let bytes = transform_encode(
+                source.clone(),
+                (16, 16),
+                &request,
+                EncodeSettings::default(),
+            )
+            .unwrap();
             assert_eq!(&bytes[4..12], b"ftypavif");
             assert_eq!(request.format.mime(), "image/avif");
+        }
+    }
+
+    #[test]
+    fn lossy_encoders_use_configured_settings() {
+        let source = DynamicImage::ImageRgb8(RgbImage::from_fn(64, 64, |x, y| {
+            image::Rgb([(x * y) as u8, (x * 4) as u8, (y * 4) as u8])
+        }));
+        for format in ["jpg", "avif"] {
+            let Route::Image(request) =
+                iiif::parse_route(&format!("/test/full/max/0/default.{format}")).unwrap()
+            else {
+                panic!("expected image request");
+            };
+            let encode = |quality| {
+                let settings = EncodeSettings {
+                    jpeg_quality: quality,
+                    avif_quality: quality,
+                    ..EncodeSettings::default()
+                };
+                transform_encode(source.clone(), (64, 64), &request, settings)
+                    .unwrap()
+                    .len()
+            };
+            assert!(encode(10) < encode(95), "{format}");
         }
     }
 
@@ -475,7 +541,13 @@ mod tests {
             else {
                 panic!("expected image request");
             };
-            let bytes = transform_encode(source.clone(), (16, 16), &request).unwrap();
+            let bytes = transform_encode(
+                source.clone(),
+                (16, 16),
+                &request,
+                EncodeSettings::default(),
+            )
+            .unwrap();
             assert_eq!(&bytes[..2], b"\xff\x0a");
             assert_eq!(request.format.mime(), "image/jxl");
             let decoded = jxl_oxide::JxlImage::builder()
@@ -538,6 +610,7 @@ mod tests {
                 },
                 (7, 6),
                 &cropped_request,
+                EncodeSettings::default(),
             )
             .await
             .unwrap();
@@ -569,6 +642,7 @@ mod tests {
                     },
                     (4, 4),
                     &request,
+                    EncodeSettings::default(),
                 )
                 .await
                 .unwrap();
@@ -612,11 +686,18 @@ mod tests {
                     height: 6,
                 };
                 let expected = command
-                    .render(&source, (16, 16), region, (7, 6), &request)
+                    .render(
+                        &source,
+                        (16, 16),
+                        region,
+                        (7, 6),
+                        &request,
+                        EncodeSettings::default(),
+                    )
                     .await
                     .unwrap();
                 let actual = native
-                    .render(&source, region, (7, 6), &request)
+                    .render(&source, region, (7, 6), &request, EncodeSettings::default())
                     .await
                     .unwrap();
                 let expected = image::load_from_memory_with_format(&expected, ImageFormat::Png)
@@ -657,11 +738,18 @@ mod tests {
                 panic!("expected image request");
             };
             let expected = command
-                .render(&source, (16, 16), region, size, &request)
+                .render(
+                    &source,
+                    (16, 16),
+                    region,
+                    size,
+                    &request,
+                    EncodeSettings::default(),
+                )
                 .await
                 .unwrap();
             let actual = native
-                .render(&source, region, size, &request)
+                .render(&source, region, size, &request, EncodeSettings::default())
                 .await
                 .unwrap();
             let expected = image::load_from_memory_with_format(&expected, ImageFormat::Png)
@@ -721,11 +809,18 @@ mod tests {
                 format: Format::Png,
             };
             let expected = command
-                .render(&source, (1000, 1000), region, size, &request)
+                .render(
+                    &source,
+                    (1000, 1000),
+                    region,
+                    size,
+                    &request,
+                    EncodeSettings::default(),
+                )
                 .await
                 .unwrap();
             let actual = native
-                .render(&source, region, size, &request)
+                .render(&source, region, size, &request, EncodeSettings::default())
                 .await
                 .unwrap();
             let expected = image::load_from_memory_with_format(&expected, ImageFormat::Png)

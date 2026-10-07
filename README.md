@@ -5,7 +5,7 @@ Persimmon is an image server that implements the [IIIF Image API 3.0](https://ii
 ## Features
 
 - IIIF Image API 3.0 regions, sizes, rotations, and qualities
-- Output as JPEG, PNG, WebP, AVIF, or lossless JPEG XL
+- Output as JPEG, PNG, AVIF, lossless WebP, or lossless JPEG XL
 - Reads source images from any S3-compatible store
 - Caches source files on local disk and rendered images in S3, shared across instances
 - Authenticated purge endpoint to clear the caches for an image

@@ -8,7 +8,7 @@ use aws_sdk_s3::{
     config::{BehaviorVersion, Credentials, Region},
 };
 use bytes::Bytes;
-use persimmon::{config::Config, storage::Storage};
+use persimmon::{config::Config, pipeline::EncodeSettings, storage::Storage};
 
 fn test_config(
     source_bucket: String,
@@ -37,6 +37,7 @@ fn test_config(
         max_parallel_downloads: 8,
         min_size: 64,
         min_tile_size: 1024,
+        encoding: EncodeSettings::default(),
         kakadu_expand: "kdu_expand".into(),
         kakadu_native: None,
         tls_cert: None,

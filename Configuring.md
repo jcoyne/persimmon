@@ -36,9 +36,16 @@ The AWS SDK default credential chain supplies S3 credentials and region. An inst
 | `PERSIMMON_MAX_PARALLEL_DOWNLOADS` | `8` | Per-instance source download limit. |
 | `PERSIMMON_MIN_SIZE` | `64` | Minimum advertised `sizes` dimension. |
 | `PERSIMMON_MIN_TILE_SIZE` | `1024` | Advertised tile width. |
+| `PERSIMMON_JPEG_QUALITY` | `75` | JPEG quality, from `1` (smallest files) to `100` (best image). |
+| `PERSIMMON_AVIF_QUALITY` | `80` | AVIF quality, from `1` (smallest files) to `100` (best image). |
+| `PERSIMMON_AVIF_SPEED` | `10` | AVIF encoder speed, from `1` (slowest, smallest files) to `10` (fastest). Images are encoded on request, so slower settings add latency to every derivative cache miss. |
 | `PERSIMMON_KDU_EXPAND` | `kdu_expand` | Path to Kakadu 8.6 or newer executable used by the command backend or fallback. |
 | `PERSIMMON_KAKADU_NATIVE` | Unset | Path to the Persimmon adapter shared library linked against Kakadu 8.6 or newer. When set, eligible regional requests use the adapter. |
 | `PERSIMMON_HEALTH_URL` | Selected from TLS settings | Optional URL override for the Docker health probe. With the default listener, the probe uses HTTPS when `PERSIMMON_TLS_CERT` is set and HTTP otherwise. Set this variable if the listener port changes. |
+
+## Output encoding
+
+PNG, WebP, and JPEG XL output is always lossless and has no quality setting. Changing a quality or speed setting does not re-encode derivatives already in the S3 cache; purge the affected images or change `PERSIMMON_CACHE_PREFIX` to start a fresh cache.
 
 ## URLs and identifiers
 

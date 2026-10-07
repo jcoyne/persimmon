@@ -677,6 +677,7 @@ async fn iiif_handler_inner(state: Arc<AppState>, uri: Uri, headers: &HeaderMap)
                     region,
                     size,
                     &request,
+                    state.config.encoding,
                 )
                 .await;
             drop(decode_permit);

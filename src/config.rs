@@ -1,5 +1,7 @@
 use std::{env, net::SocketAddr, path::PathBuf};
 
+use crate::pipeline::EncodeSettings;
+
 #[derive(Clone, Debug)]
 pub struct Config {
     pub listen: SocketAddr,
@@ -23,6 +25,7 @@ pub struct Config {
     pub max_parallel_downloads: usize,
     pub min_size: u32,
     pub min_tile_size: u32,
+    pub encoding: EncodeSettings,
     pub kakadu_expand: PathBuf,
     pub kakadu_native: Option<PathBuf>,
     pub tls_cert: Option<PathBuf>,
@@ -124,6 +127,7 @@ impl Config {
         )?;
         let route_prefix = format!("{}{}", uri.path().trim_end_matches('/'), iiif_prefix);
         let cache_prefix = cache_prefix()?;
+        let defaults = EncodeSettings::default();
         let config = Self {
             listen: value("PERSIMMON_LISTEN", "0.0.0.0:3000".parse()?)?,
             public_base_url,
@@ -149,6 +153,11 @@ impl Config {
             max_parallel_downloads: value("PERSIMMON_MAX_PARALLEL_DOWNLOADS", 8)?,
             min_size: value("PERSIMMON_MIN_SIZE", 64)?,
             min_tile_size: value("PERSIMMON_MIN_TILE_SIZE", 1024)?,
+            encoding: EncodeSettings {
+                jpeg_quality: value("PERSIMMON_JPEG_QUALITY", defaults.jpeg_quality)?,
+                avif_quality: value("PERSIMMON_AVIF_QUALITY", defaults.avif_quality)?,
+                avif_speed: value("PERSIMMON_AVIF_SPEED", defaults.avif_speed)?,
+            },
             kakadu_expand: PathBuf::from(
                 env::var("PERSIMMON_KDU_EXPAND").unwrap_or_else(|_| "kdu_expand".into()),
             ),
@@ -171,6 +180,13 @@ impl Config {
             || config.min_tile_size == 0
         {
             anyhow::bail!("invalid resource limits");
+        }
+        let encoding = config.encoding;
+        if !(1..=100).contains(&encoding.jpeg_quality)
+            || !(1..=100).contains(&encoding.avif_quality)
+            || !(1..=10).contains(&encoding.avif_speed)
+        {
+            anyhow::bail!("JPEG and AVIF quality must be 1 to 100, and AVIF speed must be 1 to 10");
         }
         Ok(config)
     }
