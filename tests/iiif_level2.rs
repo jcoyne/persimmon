@@ -115,6 +115,7 @@ fn required_rotations_qualities_and_formats_parse() {
                 ("png", Format::Png),
                 ("webp", Format::Webp),
                 ("avif", Format::Avif),
+                ("jxl", Format::Jxl),
             ] {
                 let path = format!("/id/full/max/{rotation}/{quality}.{format}");
                 let Route::Image(request) = iiif::parse_route(&path).unwrap() else {

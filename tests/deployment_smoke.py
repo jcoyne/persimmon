@@ -69,6 +69,7 @@ def main():
         ("png", "image/png", b"\x89PNG\r\n\x1a\n"),
         ("webp", "image/webp", b"RIFF"),
         ("avif", "image/avif", b"ftypavif"),
+        ("jxl", "image/jxl", b"\xff\x0a"),
     ]:
         url = image_root + "." + extension
         status, headers, body = request(opener, url)
@@ -98,7 +99,7 @@ def main():
     status, headers, body = request(opener, invalid_url)
     check(status == 400, f"invalid identifier: expected HTTP 400, got {status}")
 
-    print(f"PASS: {service}: redirect, info, JPEG/PNG/WebP/AVIF, HEAD, cache headers, CORS, invalid identifier")
+    print(f"PASS: {service}: redirect, info, JPEG/PNG/WebP/AVIF/JXL, HEAD, cache headers, CORS, invalid identifier")
     print(f"Image dimensions: {info['width']} x {info['height']}")
 
 

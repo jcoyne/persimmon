@@ -9,6 +9,8 @@ use anyhow::Context;
 use image::{DynamicImage, ImageFormat, RgbImage, imageops::FilterType};
 use libloading::Library;
 use tokio::process::Command;
+use zune_core::{bit_depth::BitDepth, colorspace::ColorSpace, options::EncoderOptions};
+use zune_jpegxl::JxlSimpleEncoder;
 
 use crate::iiif::{Format, ImageRequest, Quality, Rect};
 
@@ -87,11 +89,31 @@ fn transform_encode(
     if request.quality == Quality::Gray {
         image = DynamicImage::ImageLuma8(image.to_luma8());
     }
+    if request.format == Format::Jxl {
+        let (pixels, colorspace) = if image.color().has_color() {
+            (image.to_rgb8().into_raw(), ColorSpace::RGB)
+        } else {
+            (image.to_luma8().into_raw(), ColorSpace::Luma)
+        };
+        let options = EncoderOptions::new(
+            image.width() as usize,
+            image.height() as usize,
+            colorspace,
+            BitDepth::Eight,
+        )
+        .set_num_threads(1);
+        let mut data = Vec::new();
+        JxlSimpleEncoder::new(&pixels, options)
+            .encode(&mut data)
+            .map_err(|e| anyhow::anyhow!("JPEG XL encode failed: {e:?}"))?;
+        return Ok(data);
+    }
     let format = match request.format {
         Format::Jpeg => ImageFormat::Jpeg,
         Format::Png => ImageFormat::Png,
         Format::Webp => ImageFormat::WebP,
         Format::Avif => ImageFormat::Avif,
+        Format::Jxl => unreachable!(),
     };
     let mut data = Cursor::new(Vec::new());
     image.write_to(&mut data, format)?;
@@ -439,6 +461,39 @@ mod tests {
             let bytes = transform_encode(source.clone(), (16, 16), &request).unwrap();
             assert_eq!(&bytes[4..12], b"ftypavif");
             assert_eq!(request.format.mime(), "image/avif");
+        }
+    }
+
+    #[test]
+    fn encodes_color_and_gray_jxl() {
+        let source = DynamicImage::ImageRgb8(RgbImage::from_fn(16, 16, |x, y| {
+            image::Rgb([x as u8 * 8, y as u8 * 8, 64])
+        }));
+        for quality in ["default", "gray"] {
+            let Route::Image(request) =
+                iiif::parse_route(&format!("/test/full/max/0/{quality}.jxl")).unwrap()
+            else {
+                panic!("expected image request");
+            };
+            let bytes = transform_encode(source.clone(), (16, 16), &request).unwrap();
+            assert_eq!(&bytes[..2], b"\xff\x0a");
+            assert_eq!(request.format.mime(), "image/jxl");
+            let decoded = jxl_oxide::JxlImage::builder()
+                .read(Cursor::new(bytes))
+                .unwrap();
+            assert_eq!(decoded.image_header().size.width, 16);
+            assert_eq!(decoded.image_header().size.height, 16);
+            let render = decoded.render_frame(0).unwrap();
+            let mut stream = render.stream();
+            assert_eq!(stream.channels(), if quality == "gray" { 1 } else { 3 });
+            let mut pixels = vec![0; 16 * 16 * stream.channels() as usize];
+            assert_eq!(stream.write_to_buffer(&mut pixels), pixels.len());
+            let expected = if quality == "gray" {
+                source.to_luma8().into_raw()
+            } else {
+                source.to_rgb8().into_raw()
+            };
+            assert_eq!(pixels, expected);
         }
     }
 

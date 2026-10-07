@@ -485,7 +485,7 @@ fn info_document(config: &Config, identifier: &str, width: u32, height: u32) -> 
         "height": height,
         "maxArea": config.max_output_pixels,
         "preferredFormats": ["webp", "avif", "jpg"],
-        "extraFormats": ["webp", "avif"],
+        "extraFormats": ["webp", "avif", "jxl"],
         "extraQualities": ["color", "gray"]
     });
     if !sizes.is_empty() {
