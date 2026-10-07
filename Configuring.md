@@ -23,14 +23,14 @@ The AWS SDK default credential chain supplies S3 credentials and region. An inst
 | `PERSIMMON_TLS_CERT`, `PERSIMMON_TLS_KEY` | Unset | PEM certificate and key for native TLS; set both. Without them, put the server behind a trusted TLS proxy and use an HTTPS public base URL. |
 | `PERSIMMON_CACHE_PREFIX` | `persimmon/` | S3 namespace for derivatives and purge markers. |
 | `PERSIMMON_S3_ENDPOINT` | Unset | S3-compatible endpoint, including the release Weka service. Forces path-style requests. |
-| `PERSIMMON_LOCAL_CACHE_DIR` | `/var/cache/persimmon` | Per-instance JP2 cache and temporary bitmap directory. |
+| `PERSIMMON_LOCAL_CACHE_DIR` | `/var/cache/persimmon` | Per-instance source cache and temporary bitmap directory. |
 | `PERSIMMON_LOCAL_CACHE_BYTES` | `2000000000` | Local source cache target in bytes. Set to `0` to keep sources only while requests use them. |
 | `PERSIMMON_DERIVATIVE_CACHE_BYTES` | `10000000000` | Shared S3 derivative cache target in bytes. |
 | `PERSIMMON_PRUNE_INTERVAL_SECONDS` | `3600` | Seconds between passes when running `prune-cache-loop`. |
-| `PERSIMMON_MAX_SOURCE_BYTES` | `250000000` | Largest accepted JP2 file in bytes. |
+| `PERSIMMON_MAX_SOURCE_BYTES` | `250000000` | Largest accepted source file in bytes. |
 | `PERSIMMON_MAX_TEMP_BITMAP_BYTES` | `2000000000` | Per-instance budget for concurrent decode, intermediate bitmap, and newly encoded response buffers. A response retains its reservation until its final byte buffer is released. |
 | `PERSIMMON_MAX_OUTPUT_PIXELS` | `100000000` | Largest output image area. Reported as `maxArea` in `info.json`. |
-| `PERSIMMON_MAX_DECODE_PIXELS` | `100000000` | Largest decoded region area accepted by the `kdu_expand` fallback. Must be at least the output pixel limit. |
+| `PERSIMMON_MAX_DECODE_PIXELS` | `100000000` | Largest decoded region area accepted by the `kdu_expand` fallback and by the JPEG XL decoder. Must be at least the output pixel limit. |
 | `PERSIMMON_MAX_NATIVE_DECODE_PIXELS` | `10000000` | Largest in-memory regional decode buffer in pixels after Kakadu resolution reduction. The server attempts `kdu_expand` if this limit or the adapter's supported component geometry is exceeded. |
 | `PERSIMMON_MAX_PARALLEL_DECODES` | `8` | Per-instance Kakadu process limit. |
 | `PERSIMMON_MAX_PARALLEL_DOWNLOADS` | `8` | Per-instance source download limit. |

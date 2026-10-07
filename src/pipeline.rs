@@ -405,11 +405,34 @@ pub enum RenderPath {
     Native,
     Command,
     CommandFallback,
+    Jxl,
 }
 
 pub struct RenderResult {
     pub bytes: Vec<u8>,
     pub path: RenderPath,
+}
+
+/// Decode a JPEG XL source region and encode the requested output.
+pub async fn render_jxl(
+    source: &Path,
+    region: Rect,
+    size: (u32, u32),
+    request: &ImageRequest,
+    encoding: EncodeSettings,
+    max_decode_pixels: u64,
+) -> anyhow::Result<RenderResult> {
+    let path = source.to_owned();
+    let request = request.clone();
+    let bytes = tokio::task::spawn_blocking(move || {
+        let image = crate::jxl::decode_region(&path, region, max_decode_pixels)?;
+        transform_encode(image, size, &request, encoding)
+    })
+    .await??;
+    Ok(RenderResult {
+        bytes,
+        path: RenderPath::Jxl,
+    })
 }
 
 impl KakaduBackend {

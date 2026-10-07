@@ -10,6 +10,8 @@ Cached derivatives stream from S3 to the client without being collected into one
 
 `kdu_expand` uses Kakadu's core shared library (`libkdu_v*.so`); it does not use Persimmon's `libpersimmon_kakadu.so` adapter. The adapter includes Kakadu core code from `libkdu.a` and caps its own in-memory decode buffer at `PERSIMMON_MAX_NATIVE_DECODE_PIXELS`. The separate `kdu_expand` program writes an intermediate bitmap to disk and applies `PERSIMMON_MAX_DECODE_PIXELS`. The fallback can therefore handle some larger regions, at the cost of process startup and temporary disk use. Requests beyond both limits fail; `/metrics` exposes how often the fallback is used.
 
+Persimmon detects JPEG XL sources by their file signature, not their key, and decodes them with the pure-Rust `jxl-oxide` crate instead of Kakadu. Only the requested region is decoded, but always at full resolution, because JPEG XL has no resolution levels like JPEG 2000. A small `size` therefore doesn't reduce the work, and regions larger than `PERSIMMON_MAX_DECODE_PIXELS` fail. CMYK JPEG XL images are rejected, alpha is dropped, and only the first frame of an animation is served. `/metrics` counts these renders as `persimmon_jxl_renders_total`.
+
 Local source files in active use are retained until their requests finish. If this briefly takes the source cache over its limit, release of the last active lease triggers LRU eviction back toward the configured limit. A source larger than the limit can still be served, then is removed after its request finishes.
 
 ## Running locally with Moto S3

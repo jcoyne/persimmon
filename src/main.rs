@@ -24,9 +24,9 @@ use bytes::Bytes;
 use persimmon::{
     config::{Config, PruneConfig},
     iiif::{self, Route},
-    jp2,
+    jp2, jxl,
     metrics::Metrics,
-    pipeline::{KakaduBackend, KakaduCli, KakaduNative, RenderPath},
+    pipeline::{self, KakaduBackend, KakaduCli, KakaduNative, RenderPath},
     storage::{Derivative, SourceNotFound, Storage, hash, prune_derivatives},
 };
 use serde::{Deserialize, Serialize};
@@ -600,12 +600,19 @@ async fn iiif_handler_inner(state: Arc<AppState>, uri: Uri, headers: &HeaderMap)
         Err(e) => return error_response(StatusCode::SERVICE_UNAVAILABLE, e),
     };
     let source_for_probe = source.path.clone();
-    let dimensions =
-        match tokio::task::spawn_blocking(move || jp2::metadata(&source_for_probe)).await {
-            Ok(Ok(dimensions)) => dimensions,
-            Ok(Err(e)) => return error_response(StatusCode::INTERNAL_SERVER_ERROR, e),
-            Err(e) => return error_response(StatusCode::INTERNAL_SERVER_ERROR, e),
-        };
+    let (dimensions, is_jxl) = match tokio::task::spawn_blocking(move || {
+        if jxl::is_jxl(&source_for_probe)? {
+            Ok((jxl::metadata(&source_for_probe)?, true))
+        } else {
+            jp2::metadata(&source_for_probe).map(|dimensions| (dimensions, false))
+        }
+    })
+    .await
+    {
+        Ok(Ok(probe)) => probe,
+        Ok(Err(e)) => return error_response(StatusCode::INTERNAL_SERVER_ERROR, e),
+        Err(e) => return error_response(StatusCode::INTERNAL_SERVER_ERROR, e),
+    };
     match route {
         Route::Info(_) => {
             let media = info_type.expect("information media type was negotiated");
@@ -646,7 +653,8 @@ async fn iiif_handler_inner(state: Arc<AppState>, uri: Uri, headers: &HeaderMap)
                 .min(state.config.max_decode_pixels)
                 // Kakadu's packed output, the RGB copy, resizing, and encoding
                 // can coexist. Charge a conservative peak per decoded pixel.
-                .saturating_mul(12);
+                // JPEG XL decodes through 32-bit float planes first.
+                .saturating_mul(if is_jxl { 24 } else { 12 });
             let needed = estimated_bytes.div_ceil(1_048_576).max(1);
             let available = state.config.max_temp_bitmap_bytes / 1_048_576;
             if needed > available {
@@ -669,17 +677,29 @@ async fn iiif_handler_inner(state: Arc<AppState>, uri: Uri, headers: &HeaderMap)
                 Err(e) => return error_response(StatusCode::SERVICE_UNAVAILABLE, e),
             };
             let started = Instant::now();
-            let rendered = state
-                .kakadu
-                .render(
+            let rendered = if is_jxl {
+                pipeline::render_jxl(
                     &source.path,
-                    (dimensions.0, dimensions.1),
                     region,
                     size,
                     &request,
                     state.config.encoding,
+                    state.config.max_decode_pixels,
                 )
-                .await;
+                .await
+            } else {
+                state
+                    .kakadu
+                    .render(
+                        &source.path,
+                        (dimensions.0, dimensions.1),
+                        region,
+                        size,
+                        &request,
+                        state.config.encoding,
+                    )
+                    .await
+            };
             drop(decode_permit);
             Metrics::increment(&state.storage.metrics.render_count);
             state.storage.metrics.render_duration_ns.fetch_add(
@@ -694,6 +714,7 @@ async fn iiif_handler_inner(state: Arc<AppState>, uri: Uri, headers: &HeaderMap)
                         RenderPath::CommandFallback => {
                             &state.storage.metrics.command_fallback_renders
                         }
+                        RenderPath::Jxl => &state.storage.metrics.jxl_renders,
                     };
                     Metrics::increment(counter);
                     rendered.bytes
