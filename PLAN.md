@@ -46,7 +46,7 @@ The test deployment and its first known image URL are recorded in [tests/DEPLOYM
 
 - [x] Provide `POST /admin/purge` with HTTP Basic authentication, constant-time credential comparison, and runtime-supplied credentials. Require native TLS or an HTTPS public base URL behind a trusted TLS proxy before starting with admin auth.
 - [x] Support native TLS via certificate and key files. Provide `GET /healthz` with plain-text `OK` when Kakadu and required S3 buckets are available, plus a Docker `HEALTHCHECK`.
-- [x] Expose `/metrics` and structured request logs covering latency, S3/cache activity, decode backend, rendering, evictions, errors, and purges. Document environment variables and minimal S3 permissions in [README.md](README.md).
+- [x] Expose `/metrics` and structured request logs covering latency, S3/cache activity, decode backend, rendering, evictions, errors, and purges. Document environment variables and minimal S3 permissions in [Configuring.md](Configuring.md).
 - [x] Build and run a Linux `amd64` Docker image with the licensed Kakadu 8.6.2 SDK supplied as a private build context.
 - [x] Run and document an end-to-end, two-container check of native TLS, private S3 lookup for an encoded-slash identifier, admin authentication, and purge propagation against local Moto. See [tests/ACCEPTANCE.md](tests/ACCEPTANCE.md).
 - [x] Check the deployed public `/healthz` endpoint: HTTP/2 200 with `OK` and `Cache-Control: no-store` on 2026-10-06; see [tests/DEPLOYMENT.md](tests/DEPLOYMENT.md).
