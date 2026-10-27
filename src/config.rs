@@ -2,6 +2,26 @@ use std::{env, net::SocketAddr, path::PathBuf};
 
 use crate::pipeline::EncodeSettings;
 
+/// Which decoder reads JP2 sources.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Jp2Decoder {
+    Kakadu,
+    J2k,
+}
+
+impl std::str::FromStr for Jp2Decoder {
+    type Err = anyhow::Error;
+
+    fn from_str(value: &str) -> anyhow::Result<Self> {
+        match value {
+            "kakadu" => Ok(Self::Kakadu),
+            "j2k" if cfg!(feature = "j2k") => Ok(Self::J2k),
+            "j2k" => anyhow::bail!("this build lacks the j2k decoder; rebuild with --features j2k"),
+            _ => anyhow::bail!("JP2 decoder must be kakadu or j2k"),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Config {
     pub listen: SocketAddr,
@@ -26,6 +46,7 @@ pub struct Config {
     pub min_size: u32,
     pub min_tile_size: u32,
     pub encoding: EncodeSettings,
+    pub jp2_decoder: Jp2Decoder,
     pub kakadu_expand: PathBuf,
     pub kakadu_native: Option<PathBuf>,
     pub tls_cert: Option<PathBuf>,
@@ -158,6 +179,9 @@ impl Config {
                 avif_quality: value("PERSIMMON_AVIF_QUALITY", defaults.avif_quality)?,
                 avif_speed: value("PERSIMMON_AVIF_SPEED", defaults.avif_speed)?,
             },
+            jp2_decoder: env::var("PERSIMMON_JP2_DECODER")
+                .unwrap_or_else(|_| "kakadu".into())
+                .parse()?,
             kakadu_expand: PathBuf::from(
                 env::var("PERSIMMON_KDU_EXPAND").unwrap_or_else(|_| "kdu_expand".into()),
             ),
@@ -194,7 +218,14 @@ impl Config {
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_iiif_prefix;
+    use super::{Jp2Decoder, normalize_iiif_prefix};
+
+    #[test]
+    fn jp2_decoder_parses_known_names() {
+        assert_eq!("kakadu".parse::<Jp2Decoder>().unwrap(), Jp2Decoder::Kakadu);
+        assert_eq!("j2k".parse::<Jp2Decoder>().is_ok(), cfg!(feature = "j2k"));
+        assert!("openjpeg".parse::<Jp2Decoder>().is_err());
+    }
 
     #[test]
     fn iiif_prefix_is_optional_and_canonical() {

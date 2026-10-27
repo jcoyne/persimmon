@@ -8,7 +8,11 @@ use aws_sdk_s3::{
     config::{BehaviorVersion, Credentials, Region},
 };
 use bytes::Bytes;
-use persimmon::{config::Config, pipeline::EncodeSettings, storage::Storage};
+use persimmon::{
+    config::{Config, Jp2Decoder},
+    pipeline::EncodeSettings,
+    storage::Storage,
+};
 
 fn test_config(
     source_bucket: String,
@@ -38,6 +42,7 @@ fn test_config(
         min_size: 64,
         min_tile_size: 1024,
         encoding: EncodeSettings::default(),
+        jp2_decoder: Jp2Decoder::Kakadu,
         kakadu_expand: "kdu_expand".into(),
         kakadu_native: None,
         tls_cert: None,

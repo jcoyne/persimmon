@@ -393,11 +393,16 @@ impl KakaduNative {
     }
 }
 
-pub enum KakaduBackend {
+pub enum Jp2Backend {
     Command(KakaduCli),
     Native {
         native: KakaduNative,
         fallback: KakaduCli,
+    },
+    /// The pure-Rust `j2k` decoder, which needs no Kakadu installation.
+    #[cfg(feature = "j2k")]
+    J2k {
+        max_decode_pixels: u64,
     },
 }
 
@@ -406,6 +411,7 @@ pub enum RenderPath {
     Command,
     CommandFallback,
     Jxl,
+    J2k,
 }
 
 pub struct RenderResult {
@@ -435,7 +441,7 @@ pub async fn render_jxl(
     })
 }
 
-impl KakaduBackend {
+impl Jp2Backend {
     pub async fn verify_version(&self) -> anyhow::Result<()> {
         match self {
             Self::Command(command) => command.verify_version().await,
@@ -443,6 +449,8 @@ impl KakaduBackend {
                 native.verify_version()?;
                 fallback.verify_version().await
             }
+            #[cfg(feature = "j2k")]
+            Self::J2k { .. } => Ok(()),
         }
     }
 
@@ -456,6 +464,23 @@ impl KakaduBackend {
         encoding: EncodeSettings,
     ) -> anyhow::Result<RenderResult> {
         match self {
+            #[cfg(feature = "j2k")]
+            Self::J2k { max_decode_pixels } => {
+                let path = source.to_owned();
+                let level = reduction_level(region, size);
+                let max_pixels = *max_decode_pixels;
+                let request = request.clone();
+                let bytes = tokio::task::spawn_blocking(move || {
+                    let image =
+                        crate::j2k_decoder::decode_region(&path, region, level, max_pixels)?;
+                    transform_encode(image, size, &request, encoding)
+                })
+                .await??;
+                Ok(RenderResult {
+                    bytes,
+                    path: RenderPath::J2k,
+                })
+            }
             Self::Command(command) => {
                 let bytes = command
                     .render(source, source_dimensions, region, size, request, encoding)

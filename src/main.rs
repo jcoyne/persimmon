@@ -22,11 +22,11 @@ use axum::{
 use base64::{Engine, engine::general_purpose::STANDARD};
 use bytes::Bytes;
 use persimmon::{
-    config::{Config, PruneConfig},
+    config::{Config, Jp2Decoder, PruneConfig},
     iiif::{self, Route},
     jp2, jxl,
     metrics::Metrics,
-    pipeline::{self, KakaduBackend, KakaduCli, KakaduNative, RenderPath},
+    pipeline::{self, Jp2Backend, KakaduCli, KakaduNative, RenderPath},
     storage::{Derivative, SourceNotFound, Storage, hash, prune_derivatives},
 };
 use serde::{Deserialize, Serialize};
@@ -38,7 +38,7 @@ use tracing::{Instrument, error, info, warn};
 struct AppState {
     config: Arc<Config>,
     storage: Arc<Storage>,
-    kakadu: KakaduBackend,
+    kakadu: Jp2Backend,
     decodes: Semaphore,
     temp_bitmaps: Arc<Semaphore>,
     derivative_locks: Vec<Mutex<()>>,
@@ -311,7 +311,7 @@ async fn check_bucket(
     }
 }
 
-async fn check_kakadu(kakadu: &KakaduBackend) -> HealthCheck {
+async fn check_kakadu(kakadu: &Jp2Backend) -> HealthCheck {
     match tokio::time::timeout(HEALTH_CHECK_TIMEOUT, kakadu.verify_version()).await {
         Ok(Ok(())) => HealthCheck::ok(),
         Ok(Err(e)) => {
@@ -655,7 +655,18 @@ async fn iiif_handler_inner(state: Arc<AppState>, uri: Uri, headers: &HeaderMap)
                 // can coexist. Charge a conservative peak per decoded pixel.
                 // JPEG XL decodes through 32-bit float planes first; a lossy
                 // 24 MP source measured about 27 bytes per pixel at peak.
-                .saturating_mul(if is_jxl { 32 } else { 12 });
+                .saturating_mul(if is_jxl { 32 } else { 12 })
+                .saturating_add(if !is_jxl && state.config.jp2_decoder == Jp2Decoder::J2k {
+                    // j2k allocates for each whole JPEG 2000 tile the region
+                    // touches, and most archival JP2s are one tile. An untiled
+                    // 24 MP source peaked near 6 bytes per sample (RGB) and
+                    // 10 (gray). j2k refuses decodes over 512 MiB itself.
+                    (u64::from(dimensions.0) * u64::from(dimensions.1))
+                        .saturating_mul(u64::from(dimensions.2) * 10)
+                        .min(512 * 1_048_576)
+                } else {
+                    0
+                });
             let needed = estimated_bytes.div_ceil(1_048_576).max(1);
             let available = state.config.max_temp_bitmap_bytes / 1_048_576;
             if needed > available {
@@ -716,6 +727,7 @@ async fn iiif_handler_inner(state: Arc<AppState>, uri: Uri, headers: &HeaderMap)
                             &state.storage.metrics.command_fallback_renders
                         }
                         RenderPath::Jxl => &state.storage.metrics.jxl_renders,
+                        RenderPath::J2k => &state.storage.metrics.j2k_renders,
                     };
                     Metrics::increment(counter);
                     rendered.bytes
@@ -842,13 +854,18 @@ async fn main() -> anyhow::Result<()> {
         temp_dir: config.local_cache_dir.clone(),
         max_decode_pixels: config.max_decode_pixels,
     };
-    let kakadu = if let Some(path) = &config.kakadu_native {
-        KakaduBackend::Native {
+    let kakadu = match (config.jp2_decoder, &config.kakadu_native) {
+        #[cfg(feature = "j2k")]
+        (Jp2Decoder::J2k, _) => Jp2Backend::J2k {
+            max_decode_pixels: config.max_decode_pixels,
+        },
+        #[cfg(not(feature = "j2k"))]
+        (Jp2Decoder::J2k, _) => unreachable!("config rejects j2k without the feature"),
+        (Jp2Decoder::Kakadu, Some(path)) => Jp2Backend::Native {
             native: KakaduNative::load(path, config.max_native_decode_pixels)?,
             fallback: command,
-        }
-    } else {
-        KakaduBackend::Command(command)
+        },
+        (Jp2Decoder::Kakadu, None) => Jp2Backend::Command(command),
     };
     kakadu
         .verify_version()

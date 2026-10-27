@@ -16,8 +16,10 @@ futures = "0.3"
 hex = "0.4"
 http = "1"
 image = { version = "0.25", default-features = false, features = ["avif", "bmp", "jpeg", "png", "webp", "pnm"] }
+j2k = { version = "0.13", optional = true }
 jxl-oxide = { version = "0.12", default-features = false }
 libloading = "0.8"
+memmap2 = { version = "0.9", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
@@ -30,5 +32,14 @@ uuid = { version = "1", features = ["v4"] }
 zune-core = "0.5"
 zune-jpegxl = "0.5"
 
+[features]
+# Pure-Rust JPEG 2000 decoder, selected at runtime with PERSIMMON_JP2_DECODER=j2k.
+# The j2k crate needs Rust 1.99 or newer.
+j2k = ["dep:j2k", "dep:memmap2"]
+
 [dev-dependencies]
 tempfile = "3"
+
+[[example]]
+name = "tile_bench"
+required-features = ["j2k"]

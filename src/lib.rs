@@ -1,5 +1,7 @@
 pub mod config;
 pub mod iiif;
+#[cfg(feature = "j2k")]
+pub mod j2k_decoder;
 pub mod jp2;
 pub mod jxl;
 pub mod metrics;
