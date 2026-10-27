@@ -35,9 +35,17 @@ j2k-types = { path = "../j2k/crates/j2k-types" }
 
 ## Memory reservation
 
-Persimmon reserves extra `PERSIMMON_MAX_TEMP_BITMAP_BYTES` for each j2k decode: 10 bytes per source sample, up to 512 MiB. That matches j2k 0.12.0, whose cost follows the source (see below). With the default 2 GB budget, about three j2k decodes of a large untiled image can run at once. Without the reservation, eight concurrent decodes of the 24 MP image peaked at 3.3 GB with 0.12.0.
+Persimmon reserves extra `PERSIMMON_MAX_TEMP_BITMAP_BYTES` for each j2k decode: 12 bytes per sample of the region j2k decodes, after discarding resolution levels, plus 4 MiB. That is on top of the 12 bytes per region pixel that every JP2 request reserves.
 
-With j2k 0.13.0, a request's memory follows the region rather than the source, with or without PLT markers, so the reservation is far too high. A 1024 px region of the 18000 × 12000 image costs j2k tens of MiB, not 512 MiB. The reservation should be resized to follow the region.
+With j2k 0.13.0, a decode's memory follows the region, not the source, with or without PLT markers. Measured on 2026-10-26 with a counting allocator around `j2k_decoder::decode_region`, over every 1024 px tile at every scale of `archival.jp2`, `large-plt.jp2`, `large.jp2` and a grayscale encoding of `archival.jp2`:
+
+- RGB tiles peaked at 7 to 8 bytes per decoded sample, including the output buffer.
+- Grayscale tiles peaked at 9 to 11 bytes per decoded sample.
+- On small edge tiles, the peak was at most 3 MiB above 8 bytes per sample.
+
+A full 1024 px RGB tile now reserves about 52 MiB, so the default 2 GB budget no longer limits j2k decodes below `PERSIMMON_MAX_PARALLEL_DECODES`. Scaled tiles still reserve more, because the 12 bytes per region pixel counts the region at full resolution.
+
+Until 2026-10-26, the reservation was 10 bytes per source sample, up to 512 MiB, sized for j2k 0.12.0, whose cost followed the source. With the default budget, that let about three j2k decodes of a large untiled image run at once. Without it, eight concurrent decodes of the 24 MP image peaked at 3.3 GB with 0.12.0.
 
 ## j2k main (2026-10-26)
 
@@ -237,7 +245,6 @@ clang++ -std=c++17 -O2 -fPIC -shared \
 
 ## What would change the picture
 
-- **A smaller memory reservation.** With 0.13.0, Persimmon's per-decode reservation is far larger than a decode's cost (see [Memory reservation](#memory-reservation)). Sizing it to the region would let many more j2k decodes run at once under the default budget.
 - **A j2k release after 0.13.0.** Persimmon would get the [2026-10-26](#j2k-main-2026-10-26) results by updating its dependency.
 - **Sources without PLT markers.** Since [#190](https://github.com/frames-sg/j2k/issues/190) (in 0.13.0), these cost j2k about as much per decode as sources with PLT markers. Re-encoding with PLT markers (`ORGgen_plt=yes`) is no longer needed for memory.
 - **Further region-decode memory work in j2k.** Writing output rows straight into the requested format, rather than filling whole output planes first, would save most of the 12 MiB of output planes per 1024 px region. It is planned in [#133](https://github.com/frames-sg/j2k/issues/133).

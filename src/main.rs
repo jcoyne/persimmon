@@ -657,13 +657,16 @@ async fn iiif_handler_inner(state: Arc<AppState>, uri: Uri, headers: &HeaderMap)
                 // 24 MP source measured about 27 bytes per pixel at peak.
                 .saturating_mul(if is_jxl { 32 } else { 12 })
                 .saturating_add(if !is_jxl && state.config.jp2_decoder == Jp2Decoder::J2k {
-                    // j2k allocates for each whole JPEG 2000 tile the region
-                    // touches, and most archival JP2s are one tile. An untiled
-                    // 24 MP source peaked near 6 bytes per sample (RGB) and
-                    // 10 (gray). j2k refuses decodes over 512 MiB itself.
-                    (u64::from(dimensions.0) * u64::from(dimensions.1))
-                        .saturating_mul(u64::from(dimensions.2) * 10)
-                        .min(512 * 1_048_576)
+                    // j2k's working memory follows the region it decodes, after
+                    // discarding resolution levels. With j2k 0.13, 1024 px tiles
+                    // at every scale peaked at up to 8 bytes per decoded sample
+                    // (RGB) and 11 (gray), plus up to 3 MiB on small regions.
+                    let (width, height) =
+                        pipeline::reduced_size(region, pipeline::reduction_level(region, size));
+                    (u64::from(width) * u64::from(height))
+                        .min(state.config.max_decode_pixels)
+                        .saturating_mul(u64::from(dimensions.2) * 12)
+                        .saturating_add(4 * 1_048_576)
                 } else {
                     0
                 });

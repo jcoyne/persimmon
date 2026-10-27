@@ -41,11 +41,7 @@ pub fn decode_region(
     let available = u32::from(info.resolution_levels.saturating_sub(1));
     let level = level.min(available);
     let attempt = |decoder: &mut J2kDecoder, level: u32| {
-        let divisor = 1u32 << level;
-        let x0 = roi.x / divisor;
-        let y0 = roi.y / divisor;
-        let width = (roi.x + roi.w).div_ceil(divisor) - x0;
-        let height = (roi.y + roi.h).div_ceil(divisor) - y0;
+        let (width, height) = crate::pipeline::reduced_size(region, level);
         if u64::from(width) * u64::from(height) > max_pixels {
             anyhow::bail!("decoded region exceeds pixel limit");
         }

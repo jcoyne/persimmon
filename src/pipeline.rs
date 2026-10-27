@@ -292,9 +292,21 @@ impl std::fmt::Display for NativeFallback {
 
 impl std::error::Error for NativeFallback {}
 
-fn reduction_level(region: Rect, size: (u32, u32)) -> u32 {
+pub fn reduction_level(region: Rect, size: (u32, u32)) -> u32 {
     let ratio = (region.width / size.0).min(region.height / size.1);
     if ratio > 1 { ratio.ilog2().min(10) } else { 0 }
+}
+
+/// Size of `region` after discarding `level` resolution levels, on the
+/// reduced image's own grid.
+pub fn reduced_size(region: Rect, level: u32) -> (u32, u32) {
+    let divisor = 1u32 << level;
+    let x0 = region.x / divisor;
+    let y0 = region.y / divisor;
+    (
+        (region.x + region.width).div_ceil(divisor) - x0,
+        (region.y + region.height).div_ceil(divisor) - y0,
+    )
 }
 
 pub struct KakaduNative {
@@ -529,6 +541,20 @@ mod tests {
     use super::*;
     use crate::iiif::{self, Route};
     use std::sync::Arc;
+
+    #[test]
+    fn reduced_size_covers_the_region_on_the_reduced_grid() {
+        let region = Rect {
+            x: 1023,
+            y: 0,
+            width: 2049,
+            height: 4096,
+        };
+        assert_eq!(reduced_size(region, 0), (2049, 4096));
+        // Columns 1023..3072 become 255..768 at 1/4 scale.
+        assert_eq!(reduced_size(region, 2), (513, 1024));
+        assert_eq!(reduction_level(region, (512, 1024)), 2);
+    }
 
     #[test]
     fn encodes_color_and_gray_avif() {
