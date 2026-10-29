@@ -6,7 +6,7 @@ Persimmon builds against j2k 0.13.0 from crates.io (released 2026-10-26). With t
 
 0.13.0 includes the changes measured on j2k `main` in October. At commit `2d3ccc29` (2026-10-23), Kakadu was 1.2 to 1.6 times faster, j2k decoded the 18000 × 12000 images, and on sources with PLT markers j2k used 2 to 3.5 times Kakadu's memory instead of 20 to 35 times. See [j2k main (2026-10-23)](#j2k-main-2026-10-23). At commit `3967d045` (2026-10-25), sources without PLT markers no longer cost much more than sources with them. On the 18000 × 12000 image without PLT, peak RSS falls from 750 to 91 MB at concurrency 1 and from 1,840 to 675 MB at concurrency 8. See [j2k main (2026-10-25)](#j2k-main-2026-10-25).
 
-After 0.13.0, j2k `main` at `a5cc0a61` (2026-10-26) lowers the memory of each decode further, by 25 to 44% at concurrency 8, at the same speed. See [j2k main (2026-10-26)](#j2k-main-2026-10-26).
+After 0.13.0, j2k `main` at `a5cc0a61` (2026-10-26) lowers the memory of each decode further, by 25 to 44% at concurrency 8, at the same speed. See [j2k main (2026-10-26)](#j2k-main-2026-10-26). At `6ca1bdbf` (2026-10-28), j2k writes decoded rows straight into Persimmon's output buffer, and peak footprint at concurrency 8 is 64 to 72% below 0.13.0's, again at the same speed. See [j2k main (2026-10-28)](#j2k-main-2026-10-28).
 
 ## Using it
 
@@ -46,6 +46,44 @@ With j2k 0.13.0, a decode's memory follows the region, not the source, with or w
 A full 1024 px RGB tile now reserves about 52 MiB, so the default 2 GB budget no longer limits j2k decodes below `PERSIMMON_MAX_PARALLEL_DECODES`. Scaled tiles still reserve more, because the 12 bytes per region pixel counts the region at full resolution.
 
 Until 2026-10-26, the reservation was 10 bytes per source sample, up to 512 MiB, sized for j2k 0.12.0, whose cost followed the source. With the default budget, that let about three j2k decodes of a large untiled image run at once. Without it, eight concurrent decodes of the 24 MP image peaked at 3.3 GB with 0.12.0.
+
+## j2k main (2026-10-28)
+
+### What changed since 2026-10-26
+
+- [#294](https://github.com/frames-sg/j2k/pull/294): a region decode on one thread, as in Persimmon, now decodes all of a tile's components together and writes each finished row straight into the caller's RGB8 or Gray8 buffer, instead of filling a whole floating-point plane per component first. That removes the 12 MiB of planes from a 1024 px RGB tile. In j2k's own counters, the decoder now holds about 3.5 to 6 MiB for such a tile, against 14 to 16 MiB on 2026-10-26. Output is unchanged. A decode that fails may leave part of the output buffer written. Persimmon discards the buffer on any error, so this doesn't matter here.
+- [#296](https://github.com/frames-sg/j2k/pull/296): codestreams whose tile-part headers set their own wavelet, levels or MCT (tile-part COD or COC markers) now decode correctly. Before, every j2k release decoded them wrong. None of the JP2s checked locally has such markers: Persimmon's validator fixture, the benchmark sources and the JP2 fixtures in the sul-dlss repositories. The S3 source bucket hasn't been checked.
+- [#292](https://github.com/frames-sg/j2k/pull/292): a decoder that is used again for another region of the same source without PLT markers reuses the packet boundaries it found the first time. Persimmon creates a new decoder for every request, so it doesn't benefit as it stands. See [Keeping a decoder per source](#keeping-a-decoder-per-source).
+
+### Benchmark
+
+Same harness, sources and settings as [2026-10-26](#j2k-main-2026-10-26), with j2k 0.13.0 from crates.io and `main` at `6ca1bdbf` (built with `[patch.crates-io]`), run alternately on 2026-10-28. Each figure is the mean of two passes. The machine had other work running (load average 7 to 12), so throughput differences of a few percent are noise. Kakadu was not re-run.
+
+| Source | j2k | Concurrency 1: mean tile time | Concurrency 1: peak footprint | Concurrency 8: tiles/s | Concurrency 8: peak RSS | Concurrency 8: peak footprint |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| 6000 × 4000, PLT | 0.13.0 | 85 ms | 53 MB | 72.8 | 231 MB | 217 MB |
+| 6000 × 4000, PLT | `6ca1bdbf` | 87 ms | 18 MB | 70.0 | 87 MB | 73 MB |
+| 18000 × 12000, PLT | 0.13.0 | 140 ms | 57 MB | 46.5 | 330 MB | 314 MB |
+| 18000 × 12000, PLT | `6ca1bdbf` | 140 ms | 25 MB | 45.0 | 109 MB | 88 MB |
+| 18000 × 12000, no PLT | 0.13.0 | 160 ms | 70 MB | 38.8 | 726 MB | 359 MB |
+| 18000 × 12000, no PLT | `6ca1bdbf` | 160 ms | 23 MB | 40.0 | 505 MB | 128 MB |
+
+At concurrency 8, peak footprint falls by 144 to 231 MB, about 18 to 29 MB per concurrent decode. For the source without PLT, most of the gap between footprint and RSS is still memory the allocator keeps after decodes.
+
+The 12 bytes per decoded sample plus 4 MiB that Persimmon [reserves](#memory-reservation) for each j2k decode was sized for 0.13.0's 7 to 8 bytes per sample. It is now generous and could be lowered once Persimmon builds against a release with these changes. Re-measure the per-sample peak first.
+
+### Keeping a decoder per source
+
+To see whether #292 is worth using, a separate harness (`warm` in the j2k-bench directory) decoded the same tile grid through `decode_region_scaled_pow2_into`, as `src/j2k_decoder.rs` does, decoding only, with no resize or encode. It compared a new `J2kDecoder` for every tile, as Persimmon does today, against one decoder per worker thread kept for the whole run. Means of two passes:
+
+| Source | Concurrency | Scale-1 tiles: new decoder | Scale-1 tiles: kept decoder | All tiles/s: new | All tiles/s: kept | Peak footprint: new / kept |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 18000 × 12000, no PLT | 1 | 141 ms | 119 ms | 6.5 | 7.2 | 21 / 23 MB |
+| 18000 × 12000, no PLT | 8 | 176 ms | 156 ms | 41.2 | 44.6 | 126 / 129 MB |
+| 18000 × 12000, PLT | 1 | 117 ms | 116 ms | 7.5 | 7.5 | 19 / 19 MB |
+| 6000 × 4000, PLT | 1 | 80 ms | 74 ms | 11.8 | 12.6 | 17 / 17 MB |
+
+The 6000 × 4000 row's gap comes from one pass (83 against 73 ms). In the other, the two were 76 and 76 ms. A kept decoder makes full-resolution tiles of the source without PLT about 15% faster. Scaled tiles gain nothing, because j2k builds a new image for every reduced-resolution request and so discards what it learned. Sources with PLT markers already locate packets cheaply and gain nothing either. The archival-style sources Persimmon serves have PLT markers. So caching decoders per source, which would mean keeping each memory map and decoder alive across requests and evicting them, isn't worth it unless many sources lack PLT. If j2k kept its reduced-resolution images too, the gain would extend to scaled tiles of such sources.
 
 ## j2k main (2026-10-26)
 
@@ -245,8 +283,7 @@ clang++ -std=c++17 -O2 -fPIC -shared \
 
 ## What would change the picture
 
-- **A j2k release after 0.13.0.** Persimmon would get the [2026-10-26](#j2k-main-2026-10-26) results by updating its dependency.
+- **A j2k release after 0.13.0.** Persimmon would get the [2026-10-28](#j2k-main-2026-10-28) results by updating its dependency, and could then lower its [memory reservation](#memory-reservation).
 - **Sources without PLT markers.** Since [#190](https://github.com/frames-sg/j2k/issues/190) (in 0.13.0), these cost j2k about as much per decode as sources with PLT markers. Re-encoding with PLT markers (`ORGgen_plt=yes`) is no longer needed for memory.
-- **Further region-decode memory work in j2k.** Writing output rows straight into the requested format, rather than filling whole output planes first, would save most of the 12 MiB of output planes per 1024 px region. It is planned in [#133](https://github.com/frames-sg/j2k/issues/133).
 - **Tiled sources.** Re-encoding with `Stiles={1024,1024}` (or matching the advertised tile size) brought j2k 0.12.0 within about 20% of Kakadu. It also made Kakadu's full-resolution tiles about 30% faster. This means re-encoding the existing collection, and matters less with j2k `main`, which no longer allocates for the whole tile.
 - **HTJ2K.** j2k's block decoder is much faster for HTJ2K than for classic JPEG 2000. It too would need re-encoding.
