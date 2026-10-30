@@ -5,4 +5,5 @@ pub mod jp2;
 pub mod jxl;
 pub mod metrics;
 pub mod pipeline;
+pub mod server;
 pub mod storage;
