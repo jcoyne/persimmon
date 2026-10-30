@@ -17,6 +17,32 @@ python3 tests/load_tiles.py \
 
 For a large source, add `--max-tiles 64` to keep the test focused on a repeated adjacent group and make the warm phase practical. Without it, the script covers the entire image grid.
 
+## Local j2k baseline, 2026-10-30
+
+Two Linux `arm64` Docker containers of the j2k build (commit `e1ce3af`) ran natively in Docker Desktop on an Apple M3 Pro (12 CPUs and 7.65 GiB for the Docker VM), serving HTTPS with a self-signed certificate. Moto 5.1.22 ran in a container on the same Docker network. The client ran on the host. Each source got fresh containers and a new cache prefix, so each cold phase started with empty source and derivative caches. Each warm phase requested every tile on both instances before timing.
+
+| Source and phase | Connections, tiles | Requests/s | Errors | p50 | p95 | p99 | S3 calls/request | Derivative hit rate per lookup | Source downloads | j2k renders | cgroup peak memory |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| CC0 1000², cold | 16, 16 × 256 px | 478 | 0/4796 | 32 ms | 39 ms | 51 ms | 2.01 | 99.3% | 2 | 16 | |
+| CC0 1000², warm | 16, 16 × 256 px | 494 | 0/4952 | 31 ms | 37 ms | 42 ms | 2.00 | 100% | 0 | 0 | 18 and 18 MiB |
+| 8 MB synthetic, cold | 16, 64 × 256 px | 401 | 0/4018 | 34 ms | 66 ms | 99 ms | 2.24 | 82.4% | 2 | 111 | |
+| 8 MB synthetic, warm | 16, 64 × 256 px | 464 | 0/4649 | 33 ms | 38 ms | 53 ms | 2.00 | 100% | 0 | 0 | 63 and 49 MiB |
+| 100 MB synthetic, cold (15 s) | 16, 64 × 256 px | 407 | 0/6115 | 35 ms | 64 ms | 82 ms | 2.16 | 87.8% | 2 | 113 | |
+| 100 MB synthetic, warm | 16, 64 × 256 px | 482 | 0/4828 | 33 ms | 36 ms | 45 ms | 2.00 | 100% | 0 | 0 | 300 and 264 MiB |
+| gg891 5661 × 8287, cold (15 s) | 8, 32 × 256 px | 433 | 0/6504 | 16 ms | 28 ms | 62 ms | 2.05 | 96.3% | 2 | 56 | |
+| gg891 5661 × 8287, warm (15 s) | 8, 32 × 256 px | 468 | 0/7024 | 16 ms | 21 ms | 24 ms | 2.00 | 100% | 0 | 0 | 42 and 46 MiB |
+| gg891 5661 × 8287, cold (15 s) | 16, all 54 × 1024 px | 296 | 0/4442 | 37 ms | 181 ms | 204 ms | 2.18 | 85.8% | 2 | 99 | |
+| gg891 5661 × 8287, warm (15 s) | 16, all 54 × 1024 px | 438 | 0/6586 | 36 ms | 41 ms | 54 ms | 2.00 | 100% | 0 | 0 | 86 and 97 MiB |
+
+gg891 is the SDR image [`gg891fv3841_0002.jp2`](https://stacks.stanford.edu/file/druid:gg891fv3841/gg891fv3841_0002.jp2): 5661 × 8287 RGB, untiled, lossy, 20 MB. Its reports are retained as [256 px cold](benchmark/results/local-j2k-gg891-256-cold.json), [256 px warm](benchmark/results/local-j2k-gg891-256-warm.json), [1024 px cold](benchmark/results/local-j2k-gg891-1024-cold.json), and [1024 px warm](benchmark/results/local-j2k-gg891-1024-warm.json).
+
+The memory column is each container's cgroup `memory.peak` after both phases, so it covers the cold phase too. It includes page cache for the downloaded source, which is why the 100 MB source shows about 300 MiB. The 1024 px cold phase sent 16 connections to two instances, each allowing the default 8 parallel decodes. The CPU, Moto, and client all shared one machine, so these rates don't predict a Linux host.
+
+Two problems with the local setup had to be worked around, and neither is in Persimmon:
+
+- Moto answers every request with `Connection: close`. Run on the host and reached through `host.docker.internal`, it left over 15,000 sockets in `TIME_WAIT` on macOS. That exhausted the ephemeral ports, so some S3 requests failed with `dispatch failure` and some client requests with `Can't assign requested address`. Running Moto on the Docker network avoids this.
+- For objects uploaded in several parts, Moto 5.1.22 returns an `x-amz-checksum-crc32` header that is not the CRC32 of the whole object. The AWS SDK checks it and fails the download with `streaming error`. Upload test sources in one part, for example with boto3's `TransferConfig(multipart_threshold=1 << 30)`.
+
 ## Weka-backed single-instance test baseline, 2026-10-06
 
 The deployed `7db27dc4246e` test image served one 6048 × 4024 archival color
@@ -106,4 +132,4 @@ Two emulated Linux `amd64` containers on a macOS `arm64` host served these JP2s 
 
 A Docker memory spot sample during an earlier 100 MB cold pass was 142 and 174 MiB for the two containers; it is not a peak measurement. These rates are dominated by the local test client, Moto, and `amd64` emulation and do not establish the production throughput target. The consistently two S3 calls per warm request come from the purge-generation HEAD and derivative GET.
 
-Repeat the benchmark with the release Kakadu SDK (8.6 or newer), the native adapter, Linux `amd64` containers, representative 8 MB and 100 MB JP2 files, and the target Weka S3 service. Run both cold and warm phases at multiple concurrency levels, record server CPU and memory peaks, and retain the reports before accepting the performance target.
+Repeat the benchmark with the release j2k build, Linux `amd64` containers, representative 8 MB and 100 MB JP2 files, and the target Weka S3 service. Run both cold and warm phases at multiple concurrency levels, record server CPU and memory peaks, and retain the reports before accepting the performance target.

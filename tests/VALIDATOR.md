@@ -24,6 +24,8 @@ PYTHONPATH=tests/validator_support:/Users/jcoyne85/workspace/jcoyne/image-valida
   -i validator --version=3.0 --level=2 -v
 ```
 
+On 2026-10-30, the same validator revision passed **31 of 31 Level 2 checks, with zero failures**, against the j2k build: the Linux `arm64` Docker image from commit `e1ce3af`, reading the fixture from Moto S3 over native TLS at `https://127.0.0.1:3001/v3/validator`. The validator trusted the self-signed certificate through `SSL_CERT_FILE`. The complete output is in [validator-results-2026-10-30.log](validator-results-2026-10-30.log). This hasn't been repeated on the deployment.
+
 On 2026-10-06, the operator ran this command against the reported deployed
 Persimmon revision `7db27dc4246e`. The sibling validator checkout was at
 `b9b05a02a1ae19d30ad176d4026a3c51973e231e`. The output ended with

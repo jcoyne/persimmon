@@ -43,6 +43,17 @@ With j2k 0.13.0, which filled a floating-point plane per component before writin
 
 Until 2026-10-26, the reservation was 10 bytes per source sample, up to 512 MiB, sized for j2k 0.12.0, whose cost followed the source. With the default budget, that let about three j2k decodes of a large untiled image run at once. Without it, eight concurrent decodes of the 24 MP image peaked at 3.3 GB with 0.12.0.
 
+## j2k 0.13.1 on an SDR image (2026-10-30)
+
+[`gg891fv3841_0002.jp2`](https://stacks.stanford.edu/file/druid:gg891fv3841/gg891fv3841_0002.jp2) is a 5661 × 8287 RGB JP2 from SDR: untiled, lossy (9/7), RPCL progression, five decomposition levels, 256 px precincts at the top two resolutions and 128 px below, 20 MB. `tile_bench` rendered all 234 tiles of the 1024 px grid at every scale, three rounds, natively on an Apple M3 Pro, with peak memory from `/usr/bin/time -l`:
+
+| Concurrency | Tiles/s | Mean | p95 | Max | Peak memory footprint | Max RSS |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 7.2 | 140 ms | 245 ms | 454 ms | 57 MiB | 81 MiB |
+| 8 | 43.1 | 174 ms | 314 ms | 570 ms | 193 MiB | 352 MiB |
+
+RSS counts the memory-mapped source pages; the footprint doesn't. At concurrency 8 the footprint stayed below the 224 MiB that Persimmon reserves for eight concurrent full 1024 px RGB tiles (28 MiB each; see [Memory reservation](#memory-reservation)). Scale 8 was the slowest, with a 450 ms median, and full-resolution tiles took 129 ms at the median on one thread.
+
 ## j2k main (2026-10-28)
 
 ### What changed since 2026-10-26

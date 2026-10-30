@@ -1,0 +1,78 @@
+{
+  "connections": 16,
+  "docker_stats": {
+    "p1": {
+      "cpu_percent_avg": 16.52,
+      "cpu_percent_peak": 20.55,
+      "memory_mib_peak": 64.07,
+      "samples": 5
+    },
+    "p2": {
+      "cpu_percent_avg": 20.83,
+      "cpu_percent_peak": 21.84,
+      "memory_mib_peak": 74.59,
+      "samples": 5
+    }
+  },
+  "docker_stats_errors": [],
+  "elapsed_seconds": 15.029,
+  "error_samples": [],
+  "errors": 0,
+  "instances": 2,
+  "latency_ms": {
+    "p50": 35.59,
+    "p95": 41.15,
+    "p99": 53.61
+  },
+  "metrics": [
+    {
+      "delta": {
+        "persimmon_derivative_cache_hits_total": 3293.0,
+        "persimmon_derivative_cache_misses_total": 0.0,
+        "persimmon_derivative_writes_total": 0.0,
+        "persimmon_errors_total": 0.0,
+        "persimmon_j2k_renders_total": 0.0,
+        "persimmon_jxl_renders_total": 0.0,
+        "persimmon_purges_total": 0.0,
+        "persimmon_render_duration_seconds_total": 0.0,
+        "persimmon_renders_total": 0.0,
+        "persimmon_s3_requests_total": 6586.0,
+        "persimmon_source_cache_hits_total": 0.0,
+        "persimmon_source_cache_misses_total": 0.0,
+        "persimmon_source_download_bytes_total": 0.0,
+        "persimmon_source_downloads_total": 0.0,
+        "persimmon_source_evictions_total": 0.0
+      },
+      "instance": "127.0.0.1:3001",
+      "source_cache_bytes": 20271374.0
+    },
+    {
+      "delta": {
+        "persimmon_derivative_cache_hits_total": 3293.0,
+        "persimmon_derivative_cache_misses_total": 0.0,
+        "persimmon_derivative_writes_total": 0.0,
+        "persimmon_errors_total": 0.0,
+        "persimmon_j2k_renders_total": 0.0,
+        "persimmon_jxl_renders_total": 0.0,
+        "persimmon_purges_total": 0.0,
+        "persimmon_render_duration_seconds_total": 0.0,
+        "persimmon_renders_total": 0.0,
+        "persimmon_s3_requests_total": 6586.0,
+        "persimmon_source_cache_hits_total": 0.0,
+        "persimmon_source_cache_misses_total": 0.0,
+        "persimmon_source_download_bytes_total": 0.0,
+        "persimmon_source_downloads_total": 0.0,
+        "persimmon_source_evictions_total": 0.0
+      },
+      "instance": "127.0.0.1:3002",
+      "source_cache_bytes": 20271374.0
+    }
+  ],
+  "metrics_collected": true,
+  "peak_rss_kib_by_pid": {},
+  "requests": 6586,
+  "requests_per_second": 438.23,
+  "successes": 6586,
+  "tile_urls_per_instance": 54,
+  "warm": true
+}

@@ -4,7 +4,7 @@ Persimmon is a Rust IIIF Image API 3.0 server for private JPEG 2000 images in S3
 
 This is a progress checklist. A checked item means the feature is implemented and has the local verification described below. It does **not** imply production acceptance. Unchecked items are still required before claiming the release or throughput target is complete.
 
-The test deployment and its first known image URL are recorded in [tests/DEPLOYMENT.md](tests/DEPLOYMENT.md). The completed deployment checks below ran against image tag `7db27dc4246e`, confirmed on the running web and pruner containers by `kamal details` on 2026-10-06. The deployment has not yet cleared the unchecked release items. Persimmon switched JP2 decoders on 2026-10-30, so the validator, acceptance, load, comparison, and deployment results cited below were measured with the earlier decoder and need repeating.
+The test deployment and its first known image URL are recorded in [tests/DEPLOYMENT.md](tests/DEPLOYMENT.md). The completed deployment checks below ran against image tag `7db27dc4246e`, confirmed on the running web and pruner containers by `kamal details` on 2026-10-06. The deployment has not yet cleared the unchecked release items. Persimmon switched JP2 decoders on 2026-10-30. The validator, acceptance, load, and comparison checks have been repeated locally with the new decoder; the deployment results cited below were measured with the earlier decoder and need repeating.
 
 ## IIIF API
 
@@ -22,9 +22,10 @@ The test deployment and its first known image URL are recorded in [tests/DEPLOYM
 - [x] Decode JP2 regions in-process with the pure-Rust `j2k` crate (0.13.1), discarding resolution levels for smaller outputs, then perform final transforms and output encoding in Rust. Bound concurrent decodes, decoded pixels, and memory reservations. No licensed code is needed to build or run Persimmon.
 - [x] Test on the CC0 validator fixture that a regional decode matches a crop of the full decode, that reduced decodes have the expected sizes, and that gray outputs are one-channel.
 - [x] Benchmark tile rendering over the advertised tile grid with `examples/tile_bench.rs`, including large untiled sources with and without PLT markers; see [J2K_NOTES.md](J2K_NOTES.md).
-- [ ] Check a synthetic one-channel JP2 through Linux Docker decoding: `info.json`, JPEG, WebP, and a rotated grayscale PNG.
-- [ ] Repeat the validator, acceptance, load, Cantaloupe comparison, and deployment checks with the j2k build.
-- [ ] Validate concurrency and memory peaks with the **exact j2k release chosen for release** and representative archival color JP2 files. Synthetic sources are useful load fixtures but do not represent archival compression or component layouts.
+- [x] Check a synthetic one-channel JP2 through Linux Docker decoding: `info.json`, JPEG, WebP, and a rotated grayscale PNG returned correctly; see [tests/ACCEPTANCE.md](tests/ACCEPTANCE.md).
+- [x] Repeat the validator, acceptance, load, and Cantaloupe comparison checks locally with the j2k build: 31/31 Level 2 checks passed, the two-instance TLS, auth, and purge check passed, and advertised sizes and tiles passed for synthetic and SDR sources. See [tests/VALIDATOR.md](tests/VALIDATOR.md), [tests/ACCEPTANCE.md](tests/ACCEPTANCE.md), [tests/LOAD.md](tests/LOAD.md), and [tests/CANTALOUPE_COMPARISON.md](tests/CANTALOUPE_COMPARISON.md).
+- [ ] Deploy the j2k build to the test environment and repeat the deployment checks, including the deployed validator run; see [tests/DEPLOYMENT.md](tests/DEPLOYMENT.md).
+- [x] Validate concurrency and memory peaks with j2k 0.13.1 and archival color JP2s: the SDR image `gg891fv3841_0002.jp2` (5661 × 8287) at concurrency 1 and 8, and two instances rendering its 1024 px tiles cold under 16-connection load, plus the 6000 × 4000 and 18000 × 12000 sources in [J2K_NOTES.md](J2K_NOTES.md). Peaks stayed within Persimmon's memory reservation. Linux `amd64` and Weka measurements remain under [Performance and release acceptance](#performance-and-release-acceptance).
 
 ## S3 sources and caches
 

@@ -1,0 +1,126 @@
+[1] test baseurl_redirect PASS
+  url: []
+  tests: ['redirect']
+
+[2] test cors PASS
+  url: ['https://127.0.0.1:3001/v3/validator/info.json']
+  tests: ['CORS']
+
+[3] test format_error_random PASS
+  url: ['https://127.0.0.1:3001/v3/validator/full/max/0/default.Dko']
+  tests: ['status']
+
+[4] test format_jpg PASS
+  url: ['https://127.0.0.1:3001/v3/validator/full/max/0/default.jpg']
+  tests: ['quality']
+
+[5] test format_png PASS
+  url: ['https://127.0.0.1:3001/v3/validator/full/max/0/default.png']
+  tests: ['quality']
+
+[6] test id_basic PASS
+  url: ['https://127.0.0.1:3001/v3/validator/full/max/0/default.jpg']
+  tests: ['status']
+
+[7] test id_error_escapedslash PASS
+  url: ['https://127.0.0.1:3001/v3/a/b/full/max/0/default.jpg']
+  tests: ['status']
+
+[8] test id_error_random PASS
+  url: ['https://127.0.0.1:3001/v3/6277b8b0-d46d-11f1-a527-c2a2f4beff19/full/max/0/default.jpg']
+  tests: ['status']
+
+[9] test id_error_unescaped PASS
+  url: ['https://127.0.0.1:3001/v3/[frob]/full/max/0/default.jpg']
+  tests: ['status']
+
+[10] test id_escaped PASS
+  url: ['https://127.0.0.1:3001/v3/validator/full/max/0/default.jpg']
+  tests: ['status']
+
+[11] test id_squares PASS
+  url: ['https://127.0.0.1:3001/v3/validator/full/max/0/default.jpg']
+  tests: ['status', '6,1:True', '6,6:True', '3,5:True', '9,9:True', '8,0:True']
+
+[12] test info_json PASS
+  url: ['https://127.0.0.1:3001/v3/validator/info.json']
+  tests: ['required-field: width', 'required-field: height', 'type-is-int: height', 'type-is-int: width', 'required-field: id', 'type-is-uri: id', 'id is correct URI', 'required-field: @context', 'correct-context', 'required-field: protocol', 'correct-protocol', 'required-field: profile', 'profile-compliance', 'is-list', 'is-object', 'required-field: height', 'required-field: width', 'type-is-int: height', 'type-is-int: width', 'is-object', 'required-field: height', 'required-field: width', 'type-is-int: height', 'type-is-int: width', 'is-object', 'required-field: height', 'required-field: width', 'type-is-int: height', 'type-is-int: width', 'is-object', 'required-field: height', 'required-field: width', 'type-is-int: height', 'type-is-int: width', 'correct-type', 'license-renamed', 'is-list', 'is-list', 'attribution-missing', 'logo-missing']
+
+[13] test jsonld PASS
+  url: []
+  tests: ['json-ld']
+
+[14] test quality_color PASS
+  url: ['https://127.0.0.1:3001/v3/validator/full/max/0/color.jpg']
+  tests: ['quality']
+
+[15] test quality_error_random PASS
+  url: ['https://127.0.0.1:3001/v3/validator/full/max/0/S8vnc$.jpg']
+  tests: ['status']
+
+[16] test region_error_random PASS
+  url: ['https://127.0.0.1:3001/v3/validator/5cLrW:/max/0/default.jpg']
+  tests: ['status']
+
+[17] test region_percent PASS
+  url: ['https://127.0.0.1:3001/v3/validator/pct:91,61,9,9/max/0/default.jpg', 'https://127.0.0.1:3001/v3/validator/pct:11,81,9,9/max/0/default.jpg', 'https://127.0.0.1:3001/v3/validator/pct:61,91,9,9/max/0/default.jpg', 'https://127.0.0.1:3001/v3/validator/pct:21,21,9,9/max/0/default.jpg', 'https://127.0.0.1:3001/v3/validator/pct:51,51,9,9/max/0/default.jpg']
+  tests: ['9,6:True', '1,8:True', '6,9:True', '2,2:True', '5,5:True']
+
+[18] test region_pixels PASS
+  url: ['https://127.0.0.1:3001/v3/validator/513,313,74,74/max/0/default.jpg', 'https://127.0.0.1:3001/v3/validator/313,513,74,74/max/0/default.jpg', 'https://127.0.0.1:3001/v3/validator/413,613,74,74/max/0/default.jpg', 'https://127.0.0.1:3001/v3/validator/813,713,74,74/max/0/default.jpg', 'https://127.0.0.1:3001/v3/validator/313,813,74,74/max/0/default.jpg']
+  tests: ['5,3:True', '3,5:True', '4,6:True', '8,7:True', '3,8:True']
+
+[19] test region_square PASS
+  url: ['https://127.0.0.1:3001/v3/validator/square/max/0/default.jpg']
+  tests: ['square-region', 'square-region']
+
+[20] test rot_error_random PASS
+  url: ['https://127.0.0.1:3001/v3/validator/full/max/[s=u/default.jpg']
+  tests: ['status']
+
+[21] test rot_full_basic PASS
+  url: ['https://127.0.0.1:3001/v3/validator/full/max/180/default.jpg', 'https://127.0.0.1:3001/v3/validator/full/max/90/default.jpg', 'https://127.0.0.1:3001/v3/validator/full/max/270/default.jpg']
+  tests: ['9,9:True', '0,0:True', '0,9:True', '9,0:True', '9,0:True', '0,9:True']
+
+[22] test rot_region_basic PASS
+  url: ['https://127.0.0.1:3001/v3/validator/813,713,76,76/max/180/default.jpg', 'https://127.0.0.1:3001/v3/validator/913,713,76,76/max/180/default.jpg', 'https://127.0.0.1:3001/v3/validator/313,713,76,76/max/180/default.jpg', 'https://127.0.0.1:3001/v3/validator/913,413,76,76/max/180/default.jpg']
+  tests: ['8,7:True', '9,7:True', '3,7:True', '9,4:True']
+
+[23] test size_bwh PASS
+  url: ['https://127.0.0.1:3001/v3/validator/full/!409,633/0/default.jpg']
+  tests: ['size', '6,9:True', '5,1:True', '6,3:True', '2,9:True', '6,6:True']
+
+[24] test size_ch PASS
+  url: ['https://127.0.0.1:3001/v3/validator/full/,452/0/default.jpg']
+  tests: ['size', '3,3:True', '6,4:True', '3,0:True', '1,0:True', '2,3:True']
+
+[25] test size_error_random PASS
+  url: ['https://127.0.0.1:3001/v3/validator/full/PBB8`L/0/default.jpg']
+  tests: ['status']
+
+[26] test size_nofull PASS
+  url: ['https://127.0.0.1:3001/v3/validator/full/full/0/default.jpg']
+  tests: ['size']
+
+[27] test size_noup PASS
+  url: ['https://127.0.0.1:3001/v3/validator/full/1413,1413/0/default.jpg', 'https://127.0.0.1:3001/v3/validator/full/,1413/0/default.jpg', 'https://127.0.0.1:3001/v3/validator/full/1413,/0/default.jpg', 'https://127.0.0.1:3001/v3/validator/full/pct:200/0/default.jpg', 'https://127.0.0.1:3001/v3/validator/full/!2000,3000/0/default.jpg']
+  tests: ['size-upscalling', 'size-upscalling', 'size-upscalling', 'size-upscalling', 'size']
+
+[28] test size_percent PASS
+  url: ['https://127.0.0.1:3001/v3/validator/full/pct:57/0/default.jpg']
+  tests: ['size', '5,3:True', '0,2:True', '1,2:True', '8,9:True', '2,3:True']
+
+[29] test size_region PASS
+  url: ['https://127.0.0.1:3001/v3/validator/500,900,100,100/82,82/0/default.jpg', 'https://127.0.0.1:3001/v3/validator/900,300,100,100/74,74/0/default.jpg', 'https://127.0.0.1:3001/v3/validator/600,200,100,100/64,64/0/default.jpg', 'https://127.0.0.1:3001/v3/validator/700,300,100,100/56,56/0/default.jpg', 'https://127.0.0.1:3001/v3/validator/700,300,100,100/41,41/0/default.jpg']
+  tests: ['5,9:True', '9,3:True', '6,2:True', '7,3:True', '7,3:True']
+
+[30] test size_wc PASS
+  url: ['https://127.0.0.1:3001/v3/validator/full/603,/0/default.jpg']
+  tests: ['status', 'size', '7,2:True', '4,2:True', '5,4:True', '6,5:True', '8,8:True']
+
+[31] test size_wh PASS
+  url: ['https://127.0.0.1:3001/v3/validator/full/684,671/0/default.jpg']
+  tests: ['size', '3,7:True', '9,5:True', '3,9:True', '8,9:True', '5,7:True']
+
+Done (31 tests, 0 failures)
+Importing 3

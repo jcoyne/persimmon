@@ -41,8 +41,23 @@ The unrounded tool output for all eight runs is retained in [benchmark/results](
 
 Persimmon delivered 11.9× and 4.4× Cantaloupe's observed request rate in the 8 MB and 100 MB cold phases, and 3.9× and 1.9× in the warm phases. Persimmon's cold phases downloaded each source once and generated 64 derivatives with the native adapter. Its warm phases generated none and issued about two S3 operations per request (purge-marker HEAD and derivative GET). Cantaloupe did not expose equivalent per-request metrics in this setup.
 
+## Persimmon with j2k, 2026-10-30
+
+The Persimmon half was repeated with the j2k build on the same host. The Cantaloupe image was not rebuilt, and the Cantaloupe rows above are compared unchanged. The setup matched the original: the Linux `amd64` image from commit `e1ce3af` (`sha256:cca338863680d1bfc5c4254adf29fb718a72007733d4562265e14044d791d0d9`) under emulation, plain HTTP, Moto 5.2.5 on the host at `host.docker.internal:5001`, 16 connections, the first 64 adjacent 256 px tiles, and 10-second windows. A 64 px image warmed the process first. The synthetic sources were regenerated with the same commands, at 8,293,205 and 99,450,359 bytes, and uploaded in one part. The run was repeated after the host's `TIME_WAIT` sockets drained; the second run is below and in [benchmark/results](benchmark/results) as `persimmon-j2k-*.json`.
+
+| Source, phase | Successful requests/s | Requests, errors | p50 / p95 / p99 latency | Docker CPU avg / peak | Docker memory sampled peak | Kakadu build, requests/s |
+| --- | ---: | ---: | --- | ---: | ---: | ---: |
+| 8 MB, cold | 311.71 | 3124, 0 | 40 / 95 / 132 ms | 109% / 187% | 78 MiB | 338.31 |
+| 8 MB, warm | 219.15 | 4027, 1 | 38 / 46 / 62 ms | 43% / 110% | 83 MiB | 402.82 |
+| 100 MB, cold | 118.11 | 2529, 1 | 40 / 126 / 156 ms | 85% / 259% | 334 MiB | 134.67 |
+| 100 MB, warm | 372.06 | 3731, 0 | 42 / 51 / 64 ms | 96% / 133% | 336 MiB | 296.48 |
+
+Each cold phase downloaded the source once and made 64 j2k renders. Against Cantaloupe's rows above, the j2k build served 11.0× and 3.9× Cantaloupe's request rate in the 8 MB and 100 MB cold phases, and 2.1× and 2.4× in the warm phases.
+
+Both runs had one failed request in the 8 MB warm and 100 MB cold phases. Each was an S3 `dispatch failure` to the host Moto, which closes every connection and left about 15,000 host sockets in `TIME_WAIT`; see [LOAD.md](LOAD.md#local-j2k-baseline-2026-10-30). The failing request also stalled its phase: those two phases took 18.4 and 21.4 seconds instead of 10, which lowers their request rates. The warm phases render nothing, so the 8 MB warm difference from the Kakadu build reflects this stall, not decoding. The first run gave 312.72, 213.10, 131.84, and 373.06 requests/s, with the same two errors.
+
 ## Interpretation and limits
 
 The request sequence and S3 emulator were shared, but this does **not** isolate Rust from Java or one server implementation from another. Kakadu versions differed (8.6.2 versus 8.4.1), JPEG encoders can produce different byte sizes at the same nominal quality, cache lookup behavior differs, and all processes competed with the local Moto service and an emulated CPU. The synthetic random-noise JP2s are useful for decode and download stress, but do not represent archival imagery. CPU and memory numbers are a handful of Docker samples, not continuous peaks; the Cantaloupe JVM also retained memory between phases. Cold throughput includes the transition from misses to hits during the timed run, so it is not uncached decode capacity.
 
-Repeat this comparison on native Linux `amd64` with representative JP2s, AWS S3, several concurrency levels and runs, and matched Kakadu versions before making a production capacity or efficiency claim.
+Repeat this comparison on native Linux `amd64` with representative JP2s, AWS S3, several concurrency levels and runs before making a production capacity or efficiency claim.
