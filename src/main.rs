@@ -658,14 +658,14 @@ async fn iiif_handler_inner(state: Arc<AppState>, uri: Uri, headers: &HeaderMap)
                 .saturating_mul(if is_jxl { 32 } else { 12 })
                 .saturating_add(if !is_jxl && state.config.jp2_decoder == Jp2Decoder::J2k {
                     // j2k's working memory follows the region it decodes, after
-                    // discarding resolution levels. With j2k 0.13, 1024 px tiles
-                    // at every scale peaked at up to 8 bytes per decoded sample
-                    // (RGB) and 11 (gray), plus up to 3 MiB on small regions.
+                    // discarding resolution levels. With j2k 0.13.1, 1024 px
+                    // tiles at every scale, RGB and gray, peaked at no more than
+                    // 3 bytes per decoded sample plus 2 MiB, output included.
                     let (width, height) =
                         pipeline::reduced_size(region, pipeline::reduction_level(region, size));
                     (u64::from(width) * u64::from(height))
                         .min(state.config.max_decode_pixels)
-                        .saturating_mul(u64::from(dimensions.2) * 12)
+                        .saturating_mul(u64::from(dimensions.2) * 4)
                         .saturating_add(4 * 1_048_576)
                 } else {
                     0
