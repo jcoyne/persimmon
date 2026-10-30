@@ -33,10 +33,10 @@ cargo test
 cargo build --release
 ```
 
-Build the Docker image:
+Build the Docker image for your machine, or add `--platform linux/amd64` for an `amd64` deployment:
 
 ```sh
-docker buildx build --platform linux/amd64 --load -t persimmon:dev .
+docker buildx build --load -t persimmon:dev .
 ```
 
 ## Configuring

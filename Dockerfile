@@ -1,14 +1,15 @@
 # syntax=docker/dockerfile:1.7
-FROM --platform=linux/amd64 rust:1.99-bookworm AS builder
+FROM rust:1.99-bookworm AS builder
+ARG TARGETARCH
 WORKDIR /build
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 RUN --mount=type=cache,id=persimmon-cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
-    --mount=type=cache,id=persimmon-cargo-target-amd64,target=/build/target,sharing=locked \
+    --mount=type=cache,id=persimmon-cargo-target-$TARGETARCH,target=/build/target,sharing=locked \
     cargo build --locked --release \
     && cp /build/target/release/persimmon /build/persimmon
 
-FROM --platform=linux/amd64 debian:bookworm-slim
+FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --uid 10001 --create-home persimmon \
