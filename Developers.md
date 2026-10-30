@@ -8,11 +8,9 @@
 
 Cached derivatives stream from S3 to the client without being collected into one in-memory buffer. Newly rendered outputs are encoded in memory before their S3 write and HTTP response.
 
-`kdu_expand` uses Kakadu's core shared library (`libkdu_v*.so`); it does not use Persimmon's `libpersimmon_kakadu.so` adapter. The adapter includes Kakadu core code from `libkdu.a` and caps its own in-memory decode buffer at `PERSIMMON_MAX_NATIVE_DECODE_PIXELS`. The separate `kdu_expand` program writes an intermediate bitmap to disk and applies `PERSIMMON_MAX_DECODE_PIXELS`. The fallback can therefore handle some larger regions, at the cost of process startup and temporary disk use. Requests beyond both limits fail; `/metrics` exposes how often the fallback is used.
+JP2 sources are decoded in-process by the pure-Rust [`j2k`](https://crates.io/crates/j2k) crate, which needs Rust 1.99 or newer. `src/j2k_decoder.rs` memory-maps the source and decodes only the requested region, discarding resolution levels for smaller outputs, on one thread per request. Decoded regions larger than `PERSIMMON_MAX_DECODE_PIXELS` fail. `/metrics` counts these renders as `persimmon_j2k_renders_total`. `cargo run --release --example tile_bench` times tile rendering over an image's advertised tile grid; results are in [J2K_NOTES.md](J2K_NOTES.md).
 
-With `PERSIMMON_JP2_DECODER=j2k`, JP2 sources are decoded in-process by the pure-Rust [`j2k`](https://crates.io/crates/j2k) crate instead of Kakadu. It is behind the `j2k` Cargo feature (`cargo build --release --features j2k`), which needs Rust 1.99 or newer. The Dockerfile doesn't enable it. `cargo run --release --features j2k --example tile_bench` compares its tile rendering with the Kakadu adapter; results are in [J2K_NOTES.md](J2K_NOTES.md).
-
-Persimmon detects JPEG XL sources by their file signature, not their key, and decodes them with the pure-Rust `jxl-oxide` crate instead of Kakadu. Only the requested region is decoded, but always at full resolution, because JPEG XL has no resolution levels like JPEG 2000. A small `size` therefore doesn't reduce the work, and regions larger than `PERSIMMON_MAX_DECODE_PIXELS` fail. CMYK JPEG XL images are rejected, alpha is dropped, and only the first frame of an animation is served. `/metrics` counts these renders as `persimmon_jxl_renders_total`.
+Persimmon detects JPEG XL sources by their file signature, not their key, and decodes them with the pure-Rust `jxl-oxide` crate. Only the requested region is decoded, but always at full resolution, because JPEG XL has no resolution levels like JPEG 2000. A small `size` therefore doesn't reduce the work, and regions larger than `PERSIMMON_MAX_DECODE_PIXELS` fail. CMYK JPEG XL images are rejected, alpha is dropped, and only the first frame of an animation is served. `/metrics` counts these renders as `persimmon_jxl_renders_total`.
 
 Local source files in active use are retained until their requests finish. If this briefly takes the source cache over its limit, release of the last active lease triggers LRU eviction back toward the configured limit. A source larger than the limit can still be served, then is removed after its request finishes.
 
@@ -73,6 +71,4 @@ Other test and evidence documents:
 - [tests/DEPLOYMENT.md](tests/DEPLOYMENT.md): the read-only smoke check and release evidence checklist for a deployed instance.
 - [tests/VALIDATOR.md](tests/VALIDATOR.md): IIIF validator revisions and results.
 
-## Kakadu SDK
-
-The Docker build compiles `kdu_expand` and the native adapter for Linux `amd64`. Development and testing so far have used Kakadu 8.6.2. Before a release, re-run the validation in `tests/` with the exact SDK build you plan to ship. The build container requires production-licensed Kakadu libraries.
+Persimmon decoded JP2s with Kakadu until 2026-10-30. The validator, acceptance, load, and deployment results in `tests/` from before then were measured with Kakadu 8.6.2 and need repeating with j2k before a release.

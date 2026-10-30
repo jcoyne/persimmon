@@ -7,7 +7,7 @@ use j2k::{CpuDecodeParallelism, J2kDecoder, J2kScratchPool, PixelFormat};
 use crate::iiif::Rect;
 
 /// Decode one region of a JP2 with the pure-Rust `j2k` crate, discarding
-/// `level` resolution levels as Kakadu's `-reduce` does. The source is memory
+/// `level` resolution levels. The source is memory
 /// mapped so only the codestream bytes the region needs are read from disk.
 pub fn decode_region(
     path: &Path,
@@ -20,8 +20,8 @@ pub fn decode_region(
     // purges replace sources under a new path rather than rewriting them.
     let bytes = unsafe { memmap2::Mmap::map(&file) }.context("map JP2 source")?;
     let mut decoder = J2kDecoder::new(&bytes).context("read JP2 with j2k")?;
-    // Match Kakadu's one thread per request; PERSIMMON_MAX_PARALLEL_DECODES
-    // sets concurrency across requests.
+    // Decode on one thread per request; PERSIMMON_MAX_PARALLEL_DECODES sets
+    // concurrency across requests.
     decoder.set_cpu_decode_parallelism(CpuDecodeParallelism::Serial);
     let info = decoder.info().clone();
     let gray = info.components < 3;
@@ -62,7 +62,7 @@ pub fn decode_region(
         Ok((width, height, pixels))
     };
     // Tile or component coding styles can still have fewer levels than the
-    // main header. Fall back to full resolution like the Kakadu command.
+    // main header. Fall back to full resolution.
     let (width, height, pixels) = match attempt(&mut decoder, level) {
         Err(e) if level > 0 => {
             tracing::warn!(error = %format!("{e:#}"), "j2k reduced decode failed; retrying without reduction");

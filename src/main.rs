@@ -3,7 +3,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-use anyhow::Context;
 use aws_sdk_s3::config::http::HttpResponse;
 use aws_sdk_s3::{
     Client,
@@ -22,11 +21,11 @@ use axum::{
 use base64::{Engine, engine::general_purpose::STANDARD};
 use bytes::Bytes;
 use persimmon::{
-    config::{Config, Jp2Decoder, PruneConfig},
+    config::{Config, PruneConfig},
     iiif::{self, Route},
     jp2, jxl,
     metrics::Metrics,
-    pipeline::{self, Jp2Backend, KakaduCli, KakaduNative, RenderPath},
+    pipeline,
     storage::{Derivative, SourceNotFound, Storage, hash, prune_derivatives},
 };
 use serde::{Deserialize, Serialize};
@@ -38,7 +37,6 @@ use tracing::{Instrument, error, info, warn};
 struct AppState {
     config: Arc<Config>,
     storage: Arc<Storage>,
-    kakadu: Jp2Backend,
     decodes: Semaphore,
     temp_bitmaps: Arc<Semaphore>,
     derivative_locks: Vec<Mutex<()>>,
@@ -238,7 +236,6 @@ impl HealthCheck {
 struct HealthChecks {
     cache_bucket: HealthCheck,
     source_bucket: HealthCheck,
-    kakadu: HealthCheck,
 }
 
 #[derive(Clone, Serialize)]
@@ -249,8 +246,7 @@ struct HealthReport {
 
 impl HealthReport {
     fn new(checks: HealthChecks) -> Self {
-        let healthy =
-            checks.cache_bucket.is_ok() && checks.source_bucket.is_ok() && checks.kakadu.is_ok();
+        let healthy = checks.cache_bucket.is_ok() && checks.source_bucket.is_ok();
         Self {
             status: if healthy { "ok" } else { "unavailable" },
             checks,
@@ -311,20 +307,6 @@ async fn check_bucket(
     }
 }
 
-async fn check_kakadu(kakadu: &Jp2Backend) -> HealthCheck {
-    match tokio::time::timeout(HEALTH_CHECK_TIMEOUT, kakadu.verify_version()).await {
-        Ok(Ok(())) => HealthCheck::ok(),
-        Ok(Err(e)) => {
-            warn!(check = "kakadu", error = %format!("{e:#}"), "health check failed");
-            HealthCheck::failed(e.to_string())
-        }
-        Err(_) => {
-            warn!(check = "kakadu", "health check timed out");
-            HealthCheck::failed("timed out")
-        }
-    }
-}
-
 async fn health(State(state): State<Arc<AppState>>) -> Response {
     let mut cached = state.health.lock().await;
     if let Some((checked, report)) = &*cached
@@ -352,15 +334,13 @@ async fn health(State(state): State<Arc<AppState>>) -> Response {
         .metrics
         .s3_requests
         .fetch_add(2, std::sync::atomic::Ordering::Relaxed);
-    let (cache_bucket, source_bucket, kakadu) = tokio::join!(
+    let (cache_bucket, source_bucket) = tokio::join!(
         check_bucket("cache_bucket", cache),
         check_bucket("source_bucket", source),
-        check_kakadu(&state.kakadu),
     );
     let report = HealthReport::new(HealthChecks {
         cache_bucket,
         source_bucket,
-        kakadu,
     });
     if !report.is_ok() {
         Metrics::increment(&state.storage.metrics.errors);
@@ -651,12 +631,12 @@ async fn iiif_handler_inner(state: Arc<AppState>, uri: Uri, headers: &HeaderMap)
                 };
             let estimated_bytes = (u64::from(region.width) * u64::from(region.height))
                 .min(state.config.max_decode_pixels)
-                // Kakadu's packed output, the RGB copy, resizing, and encoding
+                // The decoded region, the RGB copy, resizing, and encoding
                 // can coexist. Charge a conservative peak per decoded pixel.
                 // JPEG XL decodes through 32-bit float planes first; a lossy
                 // 24 MP source measured about 27 bytes per pixel at peak.
                 .saturating_mul(if is_jxl { 32 } else { 12 })
-                .saturating_add(if !is_jxl && state.config.jp2_decoder == Jp2Decoder::J2k {
+                .saturating_add(if !is_jxl {
                     // j2k's working memory follows the region it decodes, after
                     // discarding resolution levels. With j2k 0.13.1, 1024 px
                     // tiles at every scale, RGB and gray, peaked at no more than
@@ -703,17 +683,15 @@ async fn iiif_handler_inner(state: Arc<AppState>, uri: Uri, headers: &HeaderMap)
                 )
                 .await
             } else {
-                state
-                    .kakadu
-                    .render(
-                        &source.path,
-                        (dimensions.0, dimensions.1),
-                        region,
-                        size,
-                        &request,
-                        state.config.encoding,
-                    )
-                    .await
+                pipeline::render_jp2(
+                    &source.path,
+                    region,
+                    size,
+                    &request,
+                    state.config.encoding,
+                    state.config.max_decode_pixels,
+                )
+                .await
             };
             drop(decode_permit);
             Metrics::increment(&state.storage.metrics.render_count);
@@ -722,18 +700,13 @@ async fn iiif_handler_inner(state: Arc<AppState>, uri: Uri, headers: &HeaderMap)
                 std::sync::atomic::Ordering::Relaxed,
             );
             let data = match rendered {
-                Ok(rendered) => {
-                    let counter = match rendered.path {
-                        RenderPath::Native => &state.storage.metrics.native_renders,
-                        RenderPath::Command => &state.storage.metrics.command_renders,
-                        RenderPath::CommandFallback => {
-                            &state.storage.metrics.command_fallback_renders
-                        }
-                        RenderPath::Jxl => &state.storage.metrics.jxl_renders,
-                        RenderPath::J2k => &state.storage.metrics.j2k_renders,
-                    };
-                    Metrics::increment(counter);
-                    rendered.bytes
+                Ok(bytes) => {
+                    Metrics::increment(if is_jxl {
+                        &state.storage.metrics.jxl_renders
+                    } else {
+                        &state.storage.metrics.j2k_renders
+                    });
+                    bytes
                 }
                 Err(e) => {
                     error!(error = %e, "image render failed");
@@ -852,28 +825,6 @@ async fn main() -> anyhow::Result<()> {
     }
     let s3 = Client::from_conf(s3_config.build());
     let storage = Arc::new(Storage::new(s3, config.clone()).await?);
-    let command = KakaduCli {
-        executable: config.kakadu_expand.clone(),
-        temp_dir: config.local_cache_dir.clone(),
-        max_decode_pixels: config.max_decode_pixels,
-    };
-    let kakadu = match (config.jp2_decoder, &config.kakadu_native) {
-        #[cfg(feature = "j2k")]
-        (Jp2Decoder::J2k, _) => Jp2Backend::J2k {
-            max_decode_pixels: config.max_decode_pixels,
-        },
-        #[cfg(not(feature = "j2k"))]
-        (Jp2Decoder::J2k, _) => unreachable!("config rejects j2k without the feature"),
-        (Jp2Decoder::Kakadu, Some(path)) => Jp2Backend::Native {
-            native: KakaduNative::load(path, config.max_native_decode_pixels)?,
-            fallback: command,
-        },
-        (Jp2Decoder::Kakadu, None) => Jp2Backend::Command(command),
-    };
-    kakadu
-        .verify_version()
-        .await
-        .context("Kakadu startup check")?;
     let state = Arc::new(AppState {
         decodes: Semaphore::new(config.max_parallel_decodes),
         temp_bitmaps: Arc::new(Semaphore::new(
@@ -883,7 +834,6 @@ async fn main() -> anyhow::Result<()> {
         health: Mutex::new(None),
         config: config.clone(),
         storage,
-        kakadu,
     });
     let app = Router::new()
         .route("/healthz", get(health))
@@ -1000,7 +950,6 @@ mod tests {
         let report = HealthReport::new(HealthChecks {
             cache_bucket: HealthCheck::ok(),
             source_bucket: HealthCheck::failed("AccessDenied"),
-            kakadu: HealthCheck::ok(),
         });
         assert_eq!(
             serde_json::to_value(&report).unwrap(),
@@ -1008,8 +957,7 @@ mod tests {
                 "status": "unavailable",
                 "checks": {
                     "cache_bucket": {"status": "ok"},
-                    "source_bucket": {"status": "error", "error": "AccessDenied"},
-                    "kakadu": {"status": "ok"}
+                    "source_bucket": {"status": "error", "error": "AccessDenied"}
                 }
             })
         );
@@ -1021,7 +969,6 @@ mod tests {
         let report = HealthReport::new(HealthChecks {
             cache_bucket: HealthCheck::ok(),
             source_bucket: HealthCheck::ok(),
-            kakadu: HealthCheck::ok(),
         });
         let response = report.response();
         assert_eq!(response.status(), StatusCode::OK);

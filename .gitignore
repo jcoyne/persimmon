@@ -1,6 +1,5 @@
 /target/
 /.env
-/kakadu/
 *.jp2
 !tests/fixtures/iiif-validator.jp2
 __pycache__/

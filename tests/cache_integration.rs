@@ -8,11 +8,7 @@ use aws_sdk_s3::{
     config::{BehaviorVersion, Credentials, Region},
 };
 use bytes::Bytes;
-use persimmon::{
-    config::{Config, Jp2Decoder},
-    pipeline::EncodeSettings,
-    storage::Storage,
-};
+use persimmon::{config::Config, pipeline::EncodeSettings, storage::Storage};
 
 fn test_config(
     source_bucket: String,
@@ -34,7 +30,6 @@ fn test_config(
         prune_interval_seconds: 3_600,
         max_output_pixels: 100,
         max_decode_pixels: 100,
-        max_native_decode_pixels: 100,
         max_source_bytes: 1_000,
         max_temp_bitmap_bytes: 1_048_576,
         max_parallel_decodes: 8,
@@ -42,9 +37,6 @@ fn test_config(
         min_size: 64,
         min_tile_size: 1024,
         encoding: EncodeSettings::default(),
-        jp2_decoder: Jp2Decoder::Kakadu,
-        kakadu_expand: "kdu_expand".into(),
-        kakadu_native: None,
         tls_cert: None,
         tls_key: None,
         admin_user: "test".into(),

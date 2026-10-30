@@ -1,6 +1,6 @@
 # j2k decoder notes
 
-Persimmon can decode JP2 sources with the pure-Rust [`j2k`](https://github.com/frames-sg/j2k) crate instead of Kakadu. It is optional and experimental. Keep Kakadu for production.
+Persimmon decodes JP2 sources with the pure-Rust [`j2k`](https://github.com/frames-sg/j2k) crate. Until 2026-10-30 it used Kakadu, and j2k was an optional, experimental alternative. The measurements below compare the two, and the Kakadu figures come from that earlier build.
 
 Persimmon builds against j2k 0.13.1 from crates.io (released 2026-10-29). With the previous release, 0.12.0, on the untiled JP2s that SDR produces, Kakadu was 4 to 13 times faster at generating tiles, used a small fraction of the memory, and was the only one of the two that could decode large images at all. Those measurements are kept below under [j2k 0.12.0 (2026-10-14)](#j2k-0120-2026-10-14).
 
@@ -10,16 +10,7 @@ After 0.13.0, j2k `main` at `a5cc0a61` (2026-10-26) lowers the memory of each de
 
 ## Using it
 
-Build with the `j2k` Cargo feature and select it at runtime:
-
-```sh
-cargo build --release --features j2k
-PERSIMMON_JP2_DECODER=j2k ./target/release/persimmon
-```
-
-The `j2k` crate needs Rust 1.99 or newer. The default build doesn't include it and still builds with the Rust 1.98 image in the Dockerfile. To ship it in the Docker image, change the builder to a Rust 1.99 image and add `--features j2k` to its `cargo build`.
-
-With `j2k` selected, Persimmon doesn't load Kakadu, check its version, or need `kdu_expand`. `src/j2k_decoder.rs` memory-maps the source and decodes the requested region. Like the Kakadu paths, it discards resolution levels for smaller outputs, decodes on one thread per request, and checks the decoded size against `PERSIMMON_MAX_DECODE_PIXELS`. If a codestream has fewer resolution levels than a request wants, it decodes at the lowest available level and the resize does the rest. Grayscale sources decode to one channel. `/metrics` counts these renders as `persimmon_j2k_renders_total`. JPEG XL sources still use `jxl-oxide`.
+The `j2k` crate needs Rust 1.99 or newer. `src/j2k_decoder.rs` memory-maps the source and decodes the requested region. Like Kakadu did, it discards resolution levels for smaller outputs, decodes on one thread per request, and checks the decoded size against `PERSIMMON_MAX_DECODE_PIXELS`. If a codestream has fewer resolution levels than a request wants, it decodes at the lowest available level and the resize does the rest. Grayscale sources decode to one channel. `/metrics` counts these renders as `persimmon_j2k_renders_total`. JPEG XL sources still use `jxl-oxide`.
 
 To try an unreleased j2k, point Cargo at a checkout of the j2k repository. Every j2k crate Persimmon uses has to be patched, or Cargo mixes two copies:
 
@@ -264,27 +255,13 @@ j2k 0.12.0 latency is uneven on untiled images. p50 ranged from 46 to 305 ms, bu
 ## Running the benchmark
 
 ```sh
-cargo run --release --features j2k --example tile_bench -- \
-  --jp2 image.jp2 --native-lib /usr/local/lib/libpersimmon_kakadu.so \
-  --decoder kakadu --tile 1024 --concurrency 8 --rounds 3
+cargo run --release --example tile_bench -- \
+  --jp2 image.jp2 --tile 1024 --concurrency 8 --rounds 3
 ```
 
-`--decoder` is `kakadu`, `j2k`, or `compare`. Wrap a run in `/usr/bin/time -v` (Linux) or `/usr/bin/time -l` (macOS) to get peak memory. Run each decoder in its own process so that memory peaks don't overlap.
+Wrap a run in `/usr/bin/time -v` (Linux) or `/usr/bin/time -l` (macOS) to get peak memory.
 
-Kakadu needs a build of the native adapter for the machine running the benchmark. In Docker, build it as in the Dockerfile. On an Apple Silicon Mac, build it for `linux/arm64` with `Makefile-Linux-arm-64-gcc` rather than running the `amd64` image under emulation.
-
-To run natively on an Apple Silicon Mac, build Kakadu with its Mac makefiles. Then link the adapter with the NEON region decompressor in place of the SSE and AVX objects the Dockerfile uses:
-
-```sh
-make -C $KDU/coresys/make -f Makefile-Mac-arm-64-gcc all
-make -C $KDU/apps/make -f Makefile-Mac-arm-64-gcc CXXFLAGS=-fPIC kdu_expand kdu_render
-clang++ -std=c++17 -O2 -fPIC -shared \
-  -I$KDU/coresys/common -I$KDU/apps/compressed_io -I$KDU/apps/support \
-  native/kakadu_adapter.cpp \
-  $KDU/apps/make/kdu_region_decompressor.o $KDU/apps/make/neon_region_decompressor.o \
-  $KDU/apps/make/supp_local.o $KDU/apps/make/jp2.o $KDU/apps/make/file_io.o \
-  $KDU/lib/Mac-arm-64-gcc/libkdu.a -lpthread -lm -o libpersimmon_kakadu.dylib
-```
+The Kakadu comparisons below used this example's `--decoder kakadu` and `--decoder compare` options with the Kakadu native adapter (`native/kakadu_adapter.cpp`), both removed on 2026-10-30. Check out an earlier commit to repeat them.
 
 ## What would change the picture
 

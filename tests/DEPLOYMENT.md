@@ -123,7 +123,7 @@ the redirect, information document, three output formats, HEAD lengths, image
 cache headers, CORS, and rejection of an identifier with a dot segment.
 `check_advertised.py` fetches every listed full-image
 size and selected edge tiles, so run it when these derivatives are acceptable
-to create. `/healthz` checks the server's configured S3 buckets and Kakadu; a
+to create. `/healthz` checks the server's configured S3 buckets; a
 public proxy may intentionally hide this route. Do not expose `/metrics` merely
 to run this check.
 
@@ -133,11 +133,11 @@ internal observability surface; omit credentials and source image contents:
 
 | Area | Evidence needed |
 | --- | --- |
-| Build | Container image digest, source commit, Kakadu runtime version, and whether the native adapter loaded. |
+| Build | Container image digest, source commit, and j2k version. |
 | Runtime | Instance count and type, Linux architecture, CPU and memory limits, public TLS termination, health probe configuration/result, and whether structured request logs reach the intended sink. |
 | Weka S3 | Bucket roles, permission policy for server and cleanup role, successful source read and derivative write/read on Weka, and observed behavior for missing object, denied access, and service outage. |
 | Cache cleanup | Whether `prune-cache` is scheduled or `prune-cache-loop` runs as one designated process; last successful run, bytes and objects removed, and cache size before/after. |
-| Metrics | Per-instance native renders, command fallbacks, errors, derivative hits/misses, and S3 calls before/after the checks. Access `/metrics` internally if available. |
+| Metrics | Per-instance j2k renders, errors, derivative hits/misses, and S3 calls before/after the checks. Access `/metrics` internally if available. |
 
 For mutation checks, use a **disposable** source key and the deployment's normal
 admin procedure. Replace that object's bytes, verify both instances still see

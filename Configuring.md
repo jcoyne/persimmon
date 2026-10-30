@@ -23,25 +23,21 @@ The AWS SDK default credential chain supplies S3 credentials and region. An inst
 | `PERSIMMON_TLS_CERT`, `PERSIMMON_TLS_KEY` | Unset | PEM certificate and key for native TLS; set both. Without them, put the server behind a trusted TLS proxy and use an HTTPS public base URL. |
 | `PERSIMMON_CACHE_PREFIX` | `persimmon/` | S3 namespace for derivatives and purge markers. |
 | `PERSIMMON_S3_ENDPOINT` | Unset | S3-compatible endpoint, including the release Weka service. Forces path-style requests. |
-| `PERSIMMON_LOCAL_CACHE_DIR` | `/var/cache/persimmon` | Per-instance source cache and temporary bitmap directory. |
+| `PERSIMMON_LOCAL_CACHE_DIR` | `/var/cache/persimmon` | Per-instance source cache directory. |
 | `PERSIMMON_LOCAL_CACHE_BYTES` | `2000000000` | Local source cache target in bytes. Set to `0` to keep sources only while requests use them. |
 | `PERSIMMON_DERIVATIVE_CACHE_BYTES` | `10000000000` | Shared S3 derivative cache target in bytes. |
 | `PERSIMMON_PRUNE_INTERVAL_SECONDS` | `3600` | Seconds between passes when running `prune-cache-loop`. |
 | `PERSIMMON_MAX_SOURCE_BYTES` | `250000000` | Largest accepted source file in bytes. |
-| `PERSIMMON_MAX_TEMP_BITMAP_BYTES` | `2000000000` | Per-instance budget for concurrent decode, intermediate bitmap, and newly encoded response buffers. A response retains its reservation until its final byte buffer is released. |
+| `PERSIMMON_MAX_TEMP_BITMAP_BYTES` | `2000000000` | Per-instance budget for concurrent decode working memory, intermediate bitmaps, and newly encoded response buffers. A response retains its reservation until its final byte buffer is released. |
 | `PERSIMMON_MAX_OUTPUT_PIXELS` | `100000000` | Largest output image area. Reported as `maxArea` in `info.json`. |
-| `PERSIMMON_MAX_DECODE_PIXELS` | `100000000` | Largest decoded region area accepted by the `kdu_expand` fallback and by the JPEG XL decoder. Must be at least the output pixel limit. |
-| `PERSIMMON_MAX_NATIVE_DECODE_PIXELS` | `10000000` | Largest in-memory regional decode buffer in pixels after Kakadu resolution reduction. The server attempts `kdu_expand` if this limit or the adapter's supported component geometry is exceeded. |
-| `PERSIMMON_MAX_PARALLEL_DECODES` | `8` | Per-instance Kakadu process limit. |
+| `PERSIMMON_MAX_DECODE_PIXELS` | `100000000` | Largest decoded region area, after discarding JP2 resolution levels, accepted by the JP2 and JPEG XL decoders. Must be at least the output pixel limit. |
+| `PERSIMMON_MAX_PARALLEL_DECODES` | `8` | Per-instance limit on concurrent decodes. Each decode uses one thread. |
 | `PERSIMMON_MAX_PARALLEL_DOWNLOADS` | `8` | Per-instance source download limit. |
 | `PERSIMMON_MIN_SIZE` | `64` | Minimum advertised `sizes` dimension. |
 | `PERSIMMON_MIN_TILE_SIZE` | `1024` | Advertised tile width. |
 | `PERSIMMON_JPEG_QUALITY` | `75` | JPEG quality, from `1` (smallest files) to `100` (best image). |
 | `PERSIMMON_AVIF_QUALITY` | `80` | AVIF quality, from `1` (smallest files) to `100` (best image). |
 | `PERSIMMON_AVIF_SPEED` | `10` | AVIF encoder speed, from `1` (slowest, smallest files) to `10` (fastest). Images are encoded on request, so slower settings add latency to every derivative cache miss. |
-| `PERSIMMON_JP2_DECODER` | `kakadu` | JP2 decoder: `kakadu`, or `j2k` for the experimental pure-Rust decoder. `j2k` needs a build with `--features j2k` and doesn't use the Kakadu settings below. It is much slower than Kakadu on untiled JP2s and can't decode large ones; see [J2K_NOTES.md](J2K_NOTES.md). |
-| `PERSIMMON_KDU_EXPAND` | `kdu_expand` | Path to Kakadu 8.6 or newer executable used by the command backend or fallback. |
-| `PERSIMMON_KAKADU_NATIVE` | Unset | Path to the Persimmon adapter shared library linked against Kakadu 8.6 or newer. When set, eligible regional requests use the adapter. |
 | `PERSIMMON_HEALTH_URL` | Selected from TLS settings | Optional URL override for the Docker health probe. With the default listener, the probe uses HTTPS when `PERSIMMON_TLS_CERT` is set and HTTP otherwise. Set this variable if the listener port changes. |
 
 ## Output encoding
@@ -72,7 +68,7 @@ persimmon prune-cache-loop
 
 The job lists derivatives, totals their sizes, and deletes the oldest objects until the configured target is met. It is creation-time eviction, not LRU. The limit is soft: concurrent writes can temporarily exceed it between runs.
 
-`prune-cache` and `prune-cache-loop` need only `PERSIMMON_CACHE_BUCKET` from the required variables, plus AWS region and credentials. They also honor the optional S3 endpoint, cache prefix, cache byte limit, and prune interval. The cleanup job does not need the source bucket, public URL, admin password, TLS files, or Kakadu settings.
+`prune-cache` and `prune-cache-loop` need only `PERSIMMON_CACHE_BUCKET` from the required variables, plus AWS region and credentials. They also honor the optional S3 endpoint, cache prefix, cache byte limit, and prune interval. The cleanup job does not need the source bucket, public URL, admin password, or TLS files.
 
 ## Caching and purges
 
@@ -80,8 +76,8 @@ Image responses allow downstream HTTP caches to keep them for one day. An admin 
 
 ## Monitoring
 
-`GET /healthz` returns `200` with the plain-text body `OK` when both S3 buckets can be queried and Kakadu is available. Otherwise it returns `503` with JSON giving an overall `status` and a result for each of `cache_bucket`, `source_bucket`, and `kakadu`; a failed check includes a short `error` such as an S3 error code (`AccessDenied`, `NoSuchBucket`), `could not connect to S3`, `timed out`, or the Kakadu version problem. Full error details are logged at `WARN` with the check name. Each check times out after three seconds, and results are cached for five seconds.
+`GET /healthz` returns `200` with the plain-text body `OK` when both S3 buckets can be queried. Otherwise it returns `503` with JSON giving an overall `status` and a result for each of `cache_bucket` and `source_bucket`; a failed check includes a short `error` such as an S3 error code (`AccessDenied`, `NoSuchBucket`), `could not connect to S3`, or `timed out`. Full error details are logged at `WARN` with the check name. Each check times out after three seconds, and results are cached for five seconds.
 
-`GET /metrics` returns per-instance Prometheus counters for S3 calls, source and derivative cache activity, rendering time, purges, and errors. It separates native renders, direct command renders, command fallback renders, JPEG XL renders, and j2k renders. The S3 request counter counts SDK calls made by this service; retries inside the SDK are not counted. Restrict this route at the load balancer if the metrics should remain internal.
+`GET /metrics` returns per-instance Prometheus counters for S3 calls, source and derivative cache activity, rendering time, purges, and errors. It separates JP2 renders (`persimmon_j2k_renders_total`) from JPEG XL renders (`persimmon_jxl_renders_total`). The S3 request counter counts SDK calls made by this service; retries inside the SDK are not counted. Restrict this route at the load balancer if the metrics should remain internal.
 
 Structured access logs at the `info` level include request method, URI, response status, and latency. Valid IIIF requests also include an `identifier` field containing the decoded source key (for example, `a%2Fb.jp2` logs as `a/b.jp2`).

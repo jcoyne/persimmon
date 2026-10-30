@@ -2,26 +2,6 @@ use std::{env, net::SocketAddr, path::PathBuf};
 
 use crate::pipeline::EncodeSettings;
 
-/// Which decoder reads JP2 sources.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Jp2Decoder {
-    Kakadu,
-    J2k,
-}
-
-impl std::str::FromStr for Jp2Decoder {
-    type Err = anyhow::Error;
-
-    fn from_str(value: &str) -> anyhow::Result<Self> {
-        match value {
-            "kakadu" => Ok(Self::Kakadu),
-            "j2k" if cfg!(feature = "j2k") => Ok(Self::J2k),
-            "j2k" => anyhow::bail!("this build lacks the j2k decoder; rebuild with --features j2k"),
-            _ => anyhow::bail!("JP2 decoder must be kakadu or j2k"),
-        }
-    }
-}
-
 #[derive(Clone, Debug)]
 pub struct Config {
     pub listen: SocketAddr,
@@ -38,7 +18,6 @@ pub struct Config {
     pub prune_interval_seconds: u64,
     pub max_output_pixels: u64,
     pub max_decode_pixels: u64,
-    pub max_native_decode_pixels: u64,
     pub max_source_bytes: u64,
     pub max_temp_bitmap_bytes: u64,
     pub max_parallel_decodes: usize,
@@ -46,9 +25,6 @@ pub struct Config {
     pub min_size: u32,
     pub min_tile_size: u32,
     pub encoding: EncodeSettings,
-    pub jp2_decoder: Jp2Decoder,
-    pub kakadu_expand: PathBuf,
-    pub kakadu_native: Option<PathBuf>,
     pub tls_cert: Option<PathBuf>,
     pub tls_key: Option<PathBuf>,
     pub admin_user: String,
@@ -167,7 +143,6 @@ impl Config {
             prune_interval_seconds: value("PERSIMMON_PRUNE_INTERVAL_SECONDS", 3_600)?,
             max_output_pixels: value("PERSIMMON_MAX_OUTPUT_PIXELS", 100_000_000)?,
             max_decode_pixels: value("PERSIMMON_MAX_DECODE_PIXELS", 100_000_000)?,
-            max_native_decode_pixels: value("PERSIMMON_MAX_NATIVE_DECODE_PIXELS", 10_000_000)?,
             max_source_bytes: value("PERSIMMON_MAX_SOURCE_BYTES", 250_000_000)?,
             max_temp_bitmap_bytes: value("PERSIMMON_MAX_TEMP_BITMAP_BYTES", 2_000_000_000)?,
             max_parallel_decodes: value("PERSIMMON_MAX_PARALLEL_DECODES", 8)?,
@@ -179,13 +154,6 @@ impl Config {
                 avif_quality: value("PERSIMMON_AVIF_QUALITY", defaults.avif_quality)?,
                 avif_speed: value("PERSIMMON_AVIF_SPEED", defaults.avif_speed)?,
             },
-            jp2_decoder: env::var("PERSIMMON_JP2_DECODER")
-                .unwrap_or_else(|_| "kakadu".into())
-                .parse()?,
-            kakadu_expand: PathBuf::from(
-                env::var("PERSIMMON_KDU_EXPAND").unwrap_or_else(|_| "kdu_expand".into()),
-            ),
-            kakadu_native: env::var_os("PERSIMMON_KAKADU_NATIVE").map(PathBuf::from),
             tls_cert,
             tls_key,
             admin_user: var("PERSIMMON_ADMIN_USER")?,
@@ -197,8 +165,6 @@ impl Config {
             || config.max_temp_bitmap_bytes < 1_048_576
             || config.max_temp_bitmap_bytes / 1_048_576 > u64::from(u32::MAX)
             || config.max_decode_pixels < config.max_output_pixels
-            || config.max_native_decode_pixels == 0
-            || config.max_native_decode_pixels > config.max_decode_pixels
             || config.max_parallel_decodes == 0
             || config.max_parallel_downloads == 0
             || config.min_tile_size == 0
@@ -218,14 +184,7 @@ impl Config {
 
 #[cfg(test)]
 mod tests {
-    use super::{Jp2Decoder, normalize_iiif_prefix};
-
-    #[test]
-    fn jp2_decoder_parses_known_names() {
-        assert_eq!("kakadu".parse::<Jp2Decoder>().unwrap(), Jp2Decoder::Kakadu);
-        assert_eq!("j2k".parse::<Jp2Decoder>().is_ok(), cfg!(feature = "j2k"));
-        assert!("openjpeg".parse::<Jp2Decoder>().is_err());
-    }
+    use super::normalize_iiif_prefix;
 
     #[test]
     fn iiif_prefix_is_optional_and_canonical() {

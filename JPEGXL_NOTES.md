@@ -4,7 +4,7 @@ Persimmon can serve JPEG XL (JXL) source images as well as JP2. These notes expl
 
 ## How JXL sources are handled
 
-Persimmon detects a JXL source by its file signature, not its S3 key or extension. Both bare codestreams (`FF 0A`) and container files are recognized. Any other file is treated as JP2 and decoded with Kakadu.
+Persimmon detects a JXL source by its file signature, not its S3 key or extension. Both bare codestreams (`FF 0A`) and container files are recognized. Any other file is treated as JP2 and decoded with j2k.
 
 JXL sources are decoded with the pure-Rust [`jxl-oxide`](https://crates.io/crates/jxl-oxide) crate (see `src/jxl.rs`):
 
@@ -29,7 +29,7 @@ JPEG 2000 compresses with a wavelet transform. The transform splits the image in
 
 To get a 1/8-size image, a decoder reads only the bottom few layers and stops. It never touches the fine detail, which is most of the file, and it never builds a full-size bitmap.
 
-Persimmon uses this. `reduction_level` in `src/pipeline.rs` works out how much smaller the output is than the region and passes that to Kakadu as `-reduce N` (or the native adapter's equivalent). A 256 px thumbnail of a 20,000 px image decodes roughly a 312 px image, not a 20,000 px one.
+Persimmon uses this. `reduction_level` in `src/pipeline.rs` works out how much smaller the output is than the region and passes that to the JP2 decoder, which discards that many resolution levels. (The measurements below predate the switch from Kakadu to j2k, when this was Kakadu's `-reduce N`.) A 256 px thumbnail of a 20,000 px image decodes roughly a 312 px image, not a 20,000 px one.
 
 ### JPEG XL mostly doesn't, and jxl-oxide can't use what it has
 

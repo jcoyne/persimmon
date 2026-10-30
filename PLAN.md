@@ -1,6 +1,6 @@
 # Persimmon implementation plan
 
-Persimmon is a Rust IIIF Image API 3.0 server for private JPEG 2000 images in S3. The first release aims for minimum Level 2 compliance, with WebP as an extra output format and Kakadu 8.6 or newer for decoding. It runs as a Linux `amd64` Docker image. The public IIIF prefix defaults to `/v3`; routing is structured so v2 can be added later.
+Persimmon is a Rust IIIF Image API 3.0 server for private JPEG 2000 images in S3. The first release aims for minimum Level 2 compliance, with WebP as an extra output format and the pure-Rust `j2k` crate for decoding. Persimmon used Kakadu 8.6 or newer until 2026-10-30; the checked items below that name Kakadu were done with that build. It runs as a Linux `amd64` Docker image. The public IIIF prefix defaults to `/v3`; routing is structured so v2 can be added later.
 
 This is a progress checklist. A checked item means the feature is implemented and has the local verification described below. It does **not** imply production acceptance. Unchecked items are still required before claiming the release or throughput target is complete.
 
@@ -17,14 +17,16 @@ The test deployment and its first known image URL are recorded in [tests/DEPLOYM
 - [x] Verify one deployed archival image through the public route: redirect, `info.json`, JPEG/PNG/WebP, `HEAD`, cache headers, CORS, invalid-identifier rejection, all 6 advertised sizes, and 7 selected tiles passed for the 6048 × 4024 source; see [tests/DEPLOYMENT.md](tests/DEPLOYMENT.md).
 - [x] Validate Level 2 behavior for the currently available color-source scope: the deployed CC0 fixture passed 31/31 official checks, and the 6048 × 4024 archival image passed the public output checks above. A representative archival grayscale source is not currently available; the synthetic grayscale check remains documented in [tests/ACCEPTANCE.md](tests/ACCEPTANCE.md).
 
-## Kakadu and image processing
+## JP2 decoding and image processing
 
 - [x] Build `kdu_expand` and a C++ C-ABI regional decoder from a privately supplied licensed Kakadu 8.6+ SDK. The Docker build uses a named `kakadu` build context; no SDK files are in the repository. The available local SDK is Kakadu 8.6.2 at `/Users/jcoyne85/Desktop/kakadu-v8_6_2-02138L`.
 - [x] Decode JP2 regions at reduced resolution in memory with the native adapter, then perform final transforms and output encoding in Rust. Bound concurrent decode and memory use. Use `kdu_expand` as a separate fallback with its own decoded-pixel and temporary-bitmap limits.
 - [x] Compare native output against Kakadu command output on local fixtures and verify native rendering in a Linux `amd64` Docker container. Benchmark adjacent tiles with synthetic 8 MB and 100 MB JP2 files; see [tests/LOAD.md](tests/LOAD.md).
 - [x] Check a synthetic one-channel JP2 through native Linux Docker decoding: `info.json`, JPEG, WebP, and a rotated grayscale PNG returned correctly with zero command fallbacks; see [tests/ACCEPTANCE.md](tests/ACCEPTANCE.md).
 - [x] Observe native decoding on the Weka-backed test deployment: `/metrics` reported 32 native renders, zero command fallbacks, and zero errors after the public and validator checks; see [tests/DEPLOYMENT.md](tests/DEPLOYMENT.md).
-- [ ] Validate concurrency, memory peaks, and fallback behavior with the **exact Kakadu SDK chosen for release** and representative archival color JP2 files. Synthetic sources are useful load fixtures but do not represent archival compression or component layouts.
+- [x] Replace Kakadu with the pure-Rust `j2k` decoder (0.13.1), removing the licensed SDK from the build. Comparisons with Kakadu are in [J2K_NOTES.md](J2K_NOTES.md).
+- [ ] Repeat the validator, acceptance, and deployment checks above with the j2k build.
+- [ ] Validate concurrency and memory peaks with the **exact j2k release chosen for release** and representative archival color JP2 files. Synthetic sources are useful load fixtures but do not represent archival compression or component layouts.
 
 ## S3 sources and caches
 
@@ -45,7 +47,7 @@ The test deployment and its first known image URL are recorded in [tests/DEPLOYM
 ## Operations and security
 
 - [x] Provide `POST /admin/purge` with HTTP Basic authentication, constant-time credential comparison, and runtime-supplied credentials. Require native TLS or an HTTPS public base URL behind a trusted TLS proxy before starting with admin auth.
-- [x] Support native TLS via certificate and key files. Provide `GET /healthz` with plain-text `OK` when Kakadu and required S3 buckets are available, plus a Docker `HEALTHCHECK`.
+- [x] Support native TLS via certificate and key files. Provide `GET /healthz` with plain-text `OK` when the required S3 buckets are available, plus a Docker `HEALTHCHECK`.
 - [x] Expose `/metrics` and structured request logs covering latency, S3/cache activity, decode backend, rendering, evictions, errors, and purges. Document environment variables and minimal S3 permissions in [Configuring.md](Configuring.md).
 - [x] Build and run a Linux `amd64` Docker image with the licensed Kakadu 8.6.2 SDK supplied as a private build context.
 - [x] Run and document an end-to-end, two-container check of native TLS, private S3 lookup for an encoded-slash identifier, admin authentication, and purge propagation against local Moto. See [tests/ACCEPTANCE.md](tests/ACCEPTANCE.md).
@@ -58,7 +60,7 @@ The test deployment and its first known image URL are recorded in [tests/DEPLOYM
 
 - [x] Add a repeatable adjacent-tile load tool and run two-container cold and warm tests with synthetic 8 MB and 100 MB JP2s. The emulated `amd64` Docker/Moto runs achieved 276–407 requests/s across two containers with zero observed errors; details and limits are in [tests/LOAD.md](tests/LOAD.md).
 - [x] Run Weka-backed, single-instance archival color baselines: at 8 connections, initially uncached derivatives served 113.45 requests/s and warm derivatives 130.54 requests/s; at 32 and 64 connections, warm derivatives served 520.84 and 1013.51 requests/s. All had zero errors and zero command fallbacks. After the 64-connection run, the web process reported 63,444 kB peak RSS since startup; see [tests/LOAD.md](tests/LOAD.md).
-- [ ] Repeat cold and warm tests on native Linux `amd64` with the release Kakadu SDK, representative JP2s, Weka S3, and several server instances. Record request rate, p50/p95/p99 latency, error rate, S3 calls per request, cache hit rate, CPU, and peak memory at multiple concurrency levels.
+- [ ] Repeat cold and warm tests on native Linux `amd64` with the release j2k build, representative JP2s, Weka S3, and several server instances. Record request rate, p50/p95/p99 latency, error rate, S3 calls per request, cache hit rate, CPU, and peak memory at multiple concurrency levels.
 - [ ] Demonstrate the target of **thousands of requests per second across several instances** before treating it as achieved. The local Moto and emulation results are a development baseline only.
 - [x] Benchmark Persimmon against the latest Cantaloupe release with Kakadu enabled. Record each server's exact Cantaloupe/Kakadu version, and use the same source images, tile requests, S3 setup, hardware, concurrency, and warm/cold phases. Publish throughput, latency, error rate, CPU, memory, and configuration in a Markdown comparison file in this repository. The local emulated comparison is in [tests/CANTALOUPE_COMPARISON.md](tests/CANTALOUPE_COMPARISON.md); native Linux and production S3 validation remain open above. The [latest Cantaloupe release](https://github.com/cantaloupe-project/cantaloupe/releases/latest) on 2026-09-30 was v5.0.7, which bundles Kakadu 8.4.1.
 - [ ] Complete release validation of Level 2 behavior, outputs, private S3 access, purge, TLS, health, cleanup, and resource limits; document any remaining optional IIIF features.

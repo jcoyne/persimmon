@@ -1,6 +1,6 @@
 # Persimmon
 
-Persimmon is an image server that implements the [IIIF Image API 3.0](https://iiif.io/api/image/3.0/). It serves private JPEG 2000 (JP2) images stored in S3, using Kakadu to decode them. It can also serve JPEG XL source images.
+Persimmon is an image server that implements the [IIIF Image API 3.0](https://iiif.io/api/image/3.0/). It serves private JPEG 2000 (JP2) images stored in S3, decoding them with the pure-Rust [`j2k`](https://crates.io/crates/j2k) crate. It can also serve JPEG XL source images.
 
 ## Features
 
@@ -26,22 +26,18 @@ The identifier is the S3 key of the source image. Encode any slash in it as `%2F
 
 ## Building
 
-Run the tests and build the binary:
+Persimmon needs Rust 1.99 or newer. Run the tests and build the binary:
 
 ```sh
 cargo test
 cargo build --release
 ```
 
-The Docker image needs a licensed Kakadu 8.6 or newer SDK. Point the build at your SDK source tree:
+Build the Docker image:
 
 ```sh
-docker buildx build --platform linux/amd64 \
-  --build-context kakadu=/path/to/licensed-kakadu-8.6-or-newer-sdk \
-  --load -t persimmon:dev .
+docker buildx build --platform linux/amd64 --load -t persimmon:dev .
 ```
-
-Don't commit Kakadu SDK binaries, headers, or credentials to this repository.
 
 ## Configuring
 
@@ -52,4 +48,4 @@ Persimmon is configured with environment variables. See [Configuring.md](Configu
 - [Developers.md](Developers.md): project status, local testing, and internals
 - [PLAN.md](PLAN.md): design goals and acceptance criteria
 - [JPEGXL_NOTES.md](JPEGXL_NOTES.md): how JPEG XL sources are handled and their performance trade-offs
-- [J2K_NOTES.md](J2K_NOTES.md): the optional pure-Rust JP2 decoder and how it compares to Kakadu
+- [J2K_NOTES.md](J2K_NOTES.md): the JP2 decoder and how it compared to Kakadu, which Persimmon used before
