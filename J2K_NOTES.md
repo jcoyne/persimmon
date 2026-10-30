@@ -2,11 +2,11 @@
 
 Persimmon can decode JP2 sources with the pure-Rust [`j2k`](https://github.com/frames-sg/j2k) crate instead of Kakadu. It is optional and experimental. Keep Kakadu for production.
 
-Persimmon builds against j2k 0.13.0 from crates.io (released 2026-10-26). With the previous release, 0.12.0, on the untiled JP2s that SDR produces, Kakadu was 4 to 13 times faster at generating tiles, used a small fraction of the memory, and was the only one of the two that could decode large images at all. Those measurements are kept below under [j2k 0.12.0 (2026-10-14)](#j2k-0120-2026-10-14).
+Persimmon builds against j2k 0.13.1 from crates.io (released 2026-10-29). With the previous release, 0.12.0, on the untiled JP2s that SDR produces, Kakadu was 4 to 13 times faster at generating tiles, used a small fraction of the memory, and was the only one of the two that could decode large images at all. Those measurements are kept below under [j2k 0.12.0 (2026-10-14)](#j2k-0120-2026-10-14).
 
 0.13.0 includes the changes measured on j2k `main` in October. At commit `2d3ccc29` (2026-10-23), Kakadu was 1.2 to 1.6 times faster, j2k decoded the 18000 × 12000 images, and on sources with PLT markers j2k used 2 to 3.5 times Kakadu's memory instead of 20 to 35 times. See [j2k main (2026-10-23)](#j2k-main-2026-10-23). At commit `3967d045` (2026-10-25), sources without PLT markers no longer cost much more than sources with them. On the 18000 × 12000 image without PLT, peak RSS falls from 750 to 91 MB at concurrency 1 and from 1,840 to 675 MB at concurrency 8. See [j2k main (2026-10-25)](#j2k-main-2026-10-25).
 
-After 0.13.0, j2k `main` at `a5cc0a61` (2026-10-26) lowers the memory of each decode further, by 25 to 44% at concurrency 8, at the same speed. See [j2k main (2026-10-26)](#j2k-main-2026-10-26). At `6ca1bdbf` (2026-10-28), j2k writes decoded rows straight into Persimmon's output buffer, and peak footprint at concurrency 8 is 64 to 72% below 0.13.0's, again at the same speed. See [j2k main (2026-10-28)](#j2k-main-2026-10-28).
+After 0.13.0, j2k `main` at `a5cc0a61` (2026-10-26) lowers the memory of each decode further, by 25 to 44% at concurrency 8, at the same speed. See [j2k main (2026-10-26)](#j2k-main-2026-10-26). At `6ca1bdbf` (2026-10-28), j2k writes decoded rows straight into Persimmon's output buffer, and peak footprint at concurrency 8 is 64 to 72% below 0.13.0's, again at the same speed. See [j2k main (2026-10-28)](#j2k-main-2026-10-28). 0.13.1 includes those changes, and faster classic Tier-1 decoding, which j2k measured at about 12% on a one-thread 1024 px region of the 18000 × 12000 image with PLT markers.
 
 ## Using it
 
@@ -70,7 +70,7 @@ Same harness, sources and settings as [2026-10-26](#j2k-main-2026-10-26), with j
 
 At concurrency 8, peak footprint falls by 144 to 231 MB, about 18 to 29 MB per concurrent decode. For the source without PLT, most of the gap between footprint and RSS is still memory the allocator keeps after decodes.
 
-The 12 bytes per decoded sample plus 4 MiB that Persimmon [reserves](#memory-reservation) for each j2k decode was sized for 0.13.0's 7 to 8 bytes per sample. It is now generous and could be lowered once Persimmon builds against a release with these changes. Re-measure the per-sample peak first.
+The 12 bytes per decoded sample plus 4 MiB that Persimmon [reserves](#memory-reservation) for each j2k decode was sized for 0.13.0's 7 to 8 bytes per sample. It is now generous, and Persimmon builds against 0.13.1, which has these changes, so it could be lowered. Re-measure the per-sample peak first.
 
 ### Keeping a decoder per source
 
@@ -283,7 +283,7 @@ clang++ -std=c++17 -O2 -fPIC -shared \
 
 ## What would change the picture
 
-- **A j2k release after 0.13.0.** Persimmon would get the [2026-10-28](#j2k-main-2026-10-28) results by updating its dependency, and could then lower its [memory reservation](#memory-reservation).
+- **A lower memory reservation.** With 0.13.1, the [reservation](#memory-reservation) sized for 0.13.0 is generous. Re-measuring the per-sample peak would show how far it can come down, letting more j2k decodes run at once under the same budget.
 - **Sources without PLT markers.** Since [#190](https://github.com/frames-sg/j2k/issues/190) (in 0.13.0), these cost j2k about as much per decode as sources with PLT markers. Re-encoding with PLT markers (`ORGgen_plt=yes`) is no longer needed for memory.
 - **Tiled sources.** Re-encoding with `Stiles={1024,1024}` (or matching the advertised tile size) brought j2k 0.12.0 within about 20% of Kakadu. It also made Kakadu's full-resolution tiles about 30% faster. This means re-encoding the existing collection, and matters less with j2k `main`, which no longer allocates for the whole tile.
 - **HTJ2K.** j2k's block decoder is much faster for HTJ2K than for classic JPEG 2000. It too would need re-encoding.

@@ -1112,7 +1112,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1774,9 +1774,9 @@ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
 name = "j2k"
-version = "0.13.0"
+version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "856cc6a2e5191f83df78be3eac4a35ccbbee1a86d209b8dda9b254d7d5fcc2c0"
+checksum = "951e75d203b4ee2e1a1164b86bc6e93a822a5b2432c6366239dbdd9caa82c0ac"
 dependencies = [
  "j2k-core",
  "j2k-native",
@@ -1787,18 +1787,18 @@ dependencies = [
 
 [[package]]
 name = "j2k-codec-math"
-version = "0.13.0"
+version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7893d23eea807047083885c844be4ecaa96257509f60e2457407b95cd9ab5b97"
+checksum = "68094a513a3fe3eeafba901542fb0602e00e82377f0a31372f5004aafdab2d45"
 dependencies = [
  "j2k-types",
 ]
 
 [[package]]
 name = "j2k-core"
-version = "0.13.0"
+version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "41c4ee3c410be502a67c1d070b34f9b4c5f23e222353f282d9089a351815b975"
+checksum = "d7b73653d63347e562e1a1198238fe45ebb3837b53cae619dc51db1c1d457174"
 dependencies = [
  "libc",
  "thiserror",
@@ -1807,9 +1807,9 @@ dependencies = [
 
 [[package]]
 name = "j2k-native"
-version = "0.13.0"
+version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "439681c982cd669ac990ecee7e8c90b71235fb12204c8e3b4d87427a43fd2f98"
+checksum = "bb704a7e44fc4578ee3c2f9d2552771353a0966c83337ea462ec2b5f24e111fb"
 dependencies = [
  "fearless_simd",
  "j2k-codec-math",
@@ -1821,15 +1821,15 @@ dependencies = [
 
 [[package]]
 name = "j2k-profile"
-version = "0.13.0"
+version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1853aefa2d4ac55b34c41324ef34f2aebc2774074754a52c84aa54b04fe09cf0"
+checksum = "c961ebaafaa802bb9d5ecf6a6ad8eb69a3b6d519bb964ffb7d2162bae187a95d"
 
 [[package]]
 name = "j2k-types"
-version = "0.13.0"
+version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2939cc20bd1db603ef4df52a2937cd5e9fc15cf3c9dfa1f0268c477582245cca"
+checksum = "49d4fb9f28bdda83107f358edbec438af673b427ff61a0d7fbfff9711f43f313"
 
 [[package]]
 name = "jobserver"
@@ -2738,7 +2738,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3159,7 +3159,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
