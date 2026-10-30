@@ -1,4 +1,8 @@
-use std::{sync::Arc, time::Instant};
+// Handler steps return the early-exit `Response` as their error. It is large,
+// but a request builds at most one, so boxing it would gain nothing.
+#![allow(clippy::result_large_err)]
+
+use std::{path::Path, sync::Arc, time::Instant};
 
 use axum::{
     body::Body,
@@ -16,11 +20,11 @@ use crate::server::{
 };
 use crate::{
     config::Config,
-    iiif::{self, Route},
+    iiif::{self, ImageRequest, Rect, Route},
     jp2, jxl,
     metrics::Metrics,
     pipeline,
-    storage::{Derivative, SourceNotFound, hash},
+    storage::{Derivative, SourceLease, SourceNotFound, hash},
 };
 
 struct RenderedBytes {
@@ -191,7 +195,9 @@ pub(crate) async fn iiif_handler(
         return text_response(StatusCode::METHOD_NOT_ALLOWED, "Method not allowed");
     }
     let counters = state.storage.metrics.clone();
-    let mut response = iiif_handler_inner(state, uri, &headers).await;
+    let mut response = serve(&state, uri.path(), &headers)
+        .await
+        .unwrap_or_else(|response| response);
     if response.status().is_server_error() {
         Metrics::increment(&counters.errors);
     }
@@ -201,245 +207,288 @@ pub(crate) async fn iiif_handler(
     response
 }
 
-async fn iiif_handler_inner(state: Arc<AppState>, uri: Uri, headers: &HeaderMap) -> Response {
-    let raw_path = uri.path();
-    let path = match iiif_path(raw_path, &state.config.route_prefix) {
-        Some(path) => path,
-        None => return text_response(StatusCode::NOT_FOUND, "Not found"),
-    };
-    let route = match iiif::parse_route(path) {
-        Ok(route) => route,
-        Err(e) if e.0 == "invalid IIIF route" => return error_response(StatusCode::NOT_FOUND, e),
-        Err(e) if e.0 == "upscaling is not supported" => {
-            return error_response(StatusCode::NOT_IMPLEMENTED, e);
-        }
-        Err(e) => return error_response(StatusCode::BAD_REQUEST, e),
-    };
-    let identifier = match &route {
-        Route::Base(id) | Route::Info(id) => id,
-        Route::Image(request) => &request.identifier,
+/// Each step returns `Err` with the response to send when the request stops early.
+type Step<T> = Result<T, Response>;
+
+async fn serve(state: &AppState, raw_path: &str, headers: &HeaderMap) -> Step<Response> {
+    match parse_request(raw_path, &state.config.route_prefix)? {
+        Route::Base(identifier) => Ok(redirect_to_info(&state.config, &identifier)),
+        Route::Info(identifier) => serve_info(state, &identifier, headers).await,
+        Route::Image(request) => serve_image(state, raw_path, &request).await,
     }
-    .clone();
-    if let Route::Base(_) = route {
-        let location = format!("{}/info.json", base_uri(&state.config, &identifier));
-        return (StatusCode::SEE_OTHER, [(header::LOCATION, location)]).into_response();
-    }
-    let info_type = if matches!(&route, Route::Info(_)) {
-        match info_media(headers) {
-            Some(media) => Some(media),
-            None => {
-                return (
-                    StatusCode::NOT_ACCEPTABLE,
-                    [(header::VARY, "Accept")],
-                    "unsupported Accept header",
-                )
-                    .into_response();
-            }
-        }
-    } else {
-        None
-    };
-    let generation = match state.storage.generation(&identifier).await {
-        Ok(generation) => generation,
-        Err(e) => return error_response(StatusCode::SERVICE_UNAVAILABLE, e),
-    };
-    let _derivative_guard = if let Route::Image(request) = &route {
-        let key = state
-            .storage
-            .derivative_key(&identifier, &generation, raw_path);
-        match state.storage.get_derivative(&key).await {
-            Ok(Some(data)) => {
-                return cached_image_response(
-                    data,
-                    request.format.mime(),
-                    state.storage.metrics.clone(),
-                );
-            }
-            Ok(None) => {}
-            Err(e) => return error_response(StatusCode::SERVICE_UNAVAILABLE, e),
-        }
-        let digest = hash(&key);
-        let index = usize::from(u8::from_str_radix(&digest[..2], 16).expect("hash prefix"));
-        let guard = state.derivative_locks[index].lock().await;
-        match state.storage.get_derivative(&key).await {
-            Ok(Some(data)) => {
-                return cached_image_response(
-                    data,
-                    request.format.mime(),
-                    state.storage.metrics.clone(),
-                );
-            }
-            Ok(None) => {}
-            Err(e) => return error_response(StatusCode::SERVICE_UNAVAILABLE, e),
-        }
-        Some(guard)
-    } else {
-        None
-    };
-    let source = match state.storage.source_path(&identifier, &generation).await {
-        Ok(path) => path,
-        Err(e) if e.is::<SourceNotFound>() => return error_response(StatusCode::NOT_FOUND, e),
-        Err(e) => return error_response(StatusCode::SERVICE_UNAVAILABLE, e),
-    };
-    let source_for_probe = source.path.clone();
-    let (dimensions, is_jxl) = match tokio::task::spawn_blocking(move || {
-        if jxl::is_jxl(&source_for_probe)? {
-            Ok((jxl::metadata(&source_for_probe)?, true))
+}
+
+fn parse_request(raw_path: &str, route_prefix: &str) -> Step<Route> {
+    let path = iiif_path(raw_path, route_prefix)
+        .ok_or_else(|| text_response(StatusCode::NOT_FOUND, "Not found"))?;
+    iiif::parse_route(path).map_err(|e| {
+        let status = if e.0 == "invalid IIIF route" {
+            StatusCode::NOT_FOUND
+        } else if e.0 == "upscaling is not supported" {
+            StatusCode::NOT_IMPLEMENTED
         } else {
-            jp2::metadata(&source_for_probe).map(|dimensions| (dimensions, false))
+            StatusCode::BAD_REQUEST
+        };
+        error_response(status, e)
+    })
+}
+
+fn redirect_to_info(config: &Config, identifier: &str) -> Response {
+    let location = format!("{}/info.json", base_uri(config, identifier));
+    (StatusCode::SEE_OTHER, [(header::LOCATION, location)]).into_response()
+}
+
+async fn serve_info(state: &AppState, identifier: &str, headers: &HeaderMap) -> Step<Response> {
+    let media = info_media(headers).ok_or_else(|| {
+        (
+            StatusCode::NOT_ACCEPTABLE,
+            [(header::VARY, "Accept")],
+            "unsupported Accept header",
+        )
+            .into_response()
+    })?;
+    let generation = current_generation(state, identifier).await?;
+    let source = fetch_source(state, identifier, &generation).await?;
+    let ((width, height, _), _) = probe_source(&source.path).await?;
+    let body = serde_json::to_vec(&info_document(&state.config, identifier, width, height))
+        .expect("serialize JSON");
+    let content_type = match media {
+        InfoMedia::JsonLd => {
+            "application/ld+json;profile=\"http://iiif.io/api/image/3/context.json\""
+        }
+        InfoMedia::Json => "application/json",
+    };
+    Ok((
+        StatusCode::OK,
+        [
+            (header::CONTENT_TYPE, content_type),
+            (header::VARY, "Accept"),
+        ],
+        body,
+    )
+        .into_response())
+}
+
+async fn serve_image(state: &AppState, raw_path: &str, request: &ImageRequest) -> Step<Response> {
+    let identifier = &request.identifier;
+    let mime = request.format.mime();
+    let generation = current_generation(state, identifier).await?;
+    let key = state
+        .storage
+        .derivative_key(identifier, &generation, raw_path);
+    if let Some(response) = cached_derivative(state, &key, mime).await? {
+        return Ok(response);
+    }
+    // Concurrent requests for the same derivative wait here, so only the
+    // first renders it and the rest find it in the cache.
+    let digest = hash(&key);
+    let index = usize::from(u8::from_str_radix(&digest[..2], 16).expect("hash prefix"));
+    let _derivative_guard = state.derivative_locks[index].lock().await;
+    if let Some(response) = cached_derivative(state, &key, mime).await? {
+        return Ok(response);
+    }
+    let source = fetch_source(state, identifier, &generation).await?;
+    let ((width, height, components), is_jxl) = probe_source(&source.path).await?;
+    let region = iiif::region_rect(&request.region, width, height)
+        .map_err(|e| error_response(StatusCode::BAD_REQUEST, e))?;
+    let size = iiif::output_size(&request.size, region, state.config.max_output_pixels)
+        .map_err(|e| error_response(StatusCode::BAD_REQUEST, e))?;
+    let temp_permit = reserve_render_memory(state, region, size, components, is_jxl).await?;
+    let data = render(state, &source.path, region, size, request, is_jxl).await?;
+    // Keep the reservation while S3 and the HTTP response still hold
+    // references to the encoded image, including slow clients.
+    let bytes = Bytes::from_owner(RenderedBytes {
+        data,
+        _permit: temp_permit,
+    });
+    store_derivative(state, identifier, &generation, &key, bytes.clone(), mime).await;
+    Ok(image_response(bytes, mime))
+}
+
+async fn current_generation(state: &AppState, identifier: &str) -> Step<String> {
+    state
+        .storage
+        .generation(identifier)
+        .await
+        .map_err(|e| error_response(StatusCode::SERVICE_UNAVAILABLE, e))
+}
+
+async fn fetch_source(state: &AppState, identifier: &str, generation: &str) -> Step<SourceLease> {
+    state
+        .storage
+        .source_path(identifier, generation)
+        .await
+        .map_err(|e| {
+            let status = if e.is::<SourceNotFound>() {
+                StatusCode::NOT_FOUND
+            } else {
+                StatusCode::SERVICE_UNAVAILABLE
+            };
+            error_response(status, e)
+        })
+}
+
+/// Reads the source's width, height and component count, and whether it is JPEG XL.
+async fn probe_source(path: &Path) -> Step<((u32, u32, u16), bool)> {
+    let path = path.to_owned();
+    let probe = tokio::task::spawn_blocking(move || {
+        if jxl::is_jxl(&path)? {
+            Ok((jxl::metadata(&path)?, true))
+        } else {
+            jp2::metadata(&path).map(|dimensions| (dimensions, false))
         }
     })
-    .await
-    {
-        Ok(Ok(probe)) => probe,
-        Ok(Err(e)) => return error_response(StatusCode::INTERNAL_SERVER_ERROR, e),
-        Err(e) => return error_response(StatusCode::INTERNAL_SERVER_ERROR, e),
+    .await;
+    match probe {
+        Ok(Ok(probe)) => Ok(probe),
+        Ok(Err(e)) => Err(error_response(StatusCode::INTERNAL_SERVER_ERROR, e)),
+        Err(e) => Err(error_response(StatusCode::INTERNAL_SERVER_ERROR, e)),
+    }
+}
+
+async fn cached_derivative(
+    state: &AppState,
+    key: &str,
+    mime: &'static str,
+) -> Step<Option<Response>> {
+    match state.storage.get_derivative(key).await {
+        Ok(derivative) => {
+            Ok(derivative
+                .map(|data| cached_image_response(data, mime, state.storage.metrics.clone())))
+        }
+        Err(e) => Err(error_response(StatusCode::SERVICE_UNAVAILABLE, e)),
+    }
+}
+
+async fn reserve_render_memory(
+    state: &AppState,
+    region: Rect,
+    size: (u32, u32),
+    components: u16,
+    is_jxl: bool,
+) -> Step<OwnedSemaphorePermit> {
+    let needed = render_memory_mib(&state.config, region, size, components, is_jxl);
+    let available = state.config.max_temp_bitmap_bytes / 1_048_576;
+    if needed > available {
+        return Err(text_response(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "temporary bitmap limit exceeded",
+        ));
+    }
+    state
+        .temp_bitmaps
+        .clone()
+        .acquire_many_owned(needed as u32)
+        .await
+        .map_err(|e| error_response(StatusCode::SERVICE_UNAVAILABLE, e))
+}
+
+/// Estimates the peak memory of one render, in whole MiB.
+fn render_memory_mib(
+    config: &Config,
+    region: Rect,
+    size: (u32, u32),
+    components: u16,
+    is_jxl: bool,
+) -> u64 {
+    let estimated_bytes = (u64::from(region.width) * u64::from(region.height))
+        .min(config.max_decode_pixels)
+        // The decoded region, the RGB copy, resizing, and encoding
+        // can coexist. Charge a conservative peak per decoded pixel.
+        // JPEG XL decodes through 32-bit float planes first; a lossy
+        // 24 MP source measured about 27 bytes per pixel at peak.
+        .saturating_mul(if is_jxl { 32 } else { 12 })
+        .saturating_add(if !is_jxl {
+            // j2k's working memory follows the region it decodes, after
+            // discarding resolution levels. With j2k 0.13.1, 1024 px
+            // tiles at every scale, RGB and gray, peaked at no more than
+            // 3 bytes per decoded sample plus 2 MiB, output included.
+            let (width, height) =
+                pipeline::reduced_size(region, pipeline::reduction_level(region, size));
+            (u64::from(width) * u64::from(height))
+                .min(config.max_decode_pixels)
+                .saturating_mul(u64::from(components) * 4)
+                .saturating_add(4 * 1_048_576)
+        } else {
+            0
+        });
+    estimated_bytes.div_ceil(1_048_576).max(1)
+}
+
+async fn render(
+    state: &AppState,
+    source: &Path,
+    region: Rect,
+    size: (u32, u32),
+    request: &ImageRequest,
+    is_jxl: bool,
+) -> Step<Vec<u8>> {
+    let decode_permit = state
+        .decodes
+        .acquire()
+        .await
+        .map_err(|e| error_response(StatusCode::SERVICE_UNAVAILABLE, e))?;
+    let started = Instant::now();
+    let rendered = if is_jxl {
+        pipeline::render_jxl(
+            source,
+            region,
+            size,
+            request,
+            state.config.encoding,
+            state.config.max_decode_pixels,
+        )
+        .await
+    } else {
+        pipeline::render_jp2(
+            source,
+            region,
+            size,
+            request,
+            state.config.encoding,
+            state.config.max_decode_pixels,
+        )
+        .await
     };
-    match route {
-        Route::Info(_) => {
-            let media = info_type.expect("information media type was negotiated");
-            let body = serde_json::to_vec(&info_document(
-                &state.config,
-                &identifier,
-                dimensions.0,
-                dimensions.1,
-            ))
-            .expect("serialize JSON");
-            let content_type = match media {
-                InfoMedia::JsonLd => {
-                    "application/ld+json;profile=\"http://iiif.io/api/image/3/context.json\""
-                }
-                InfoMedia::Json => "application/json",
-            };
-            (
-                StatusCode::OK,
-                [
-                    (header::CONTENT_TYPE, content_type),
-                    (header::VARY, "Accept"),
-                ],
-                body,
-            )
-                .into_response()
-        }
-        Route::Image(request) => {
-            let region = match iiif::region_rect(&request.region, dimensions.0, dimensions.1) {
-                Ok(region) => region,
-                Err(e) => return error_response(StatusCode::BAD_REQUEST, e),
-            };
-            let size =
-                match iiif::output_size(&request.size, region, state.config.max_output_pixels) {
-                    Ok(size) => size,
-                    Err(e) => return error_response(StatusCode::BAD_REQUEST, e),
-                };
-            let estimated_bytes = (u64::from(region.width) * u64::from(region.height))
-                .min(state.config.max_decode_pixels)
-                // The decoded region, the RGB copy, resizing, and encoding
-                // can coexist. Charge a conservative peak per decoded pixel.
-                // JPEG XL decodes through 32-bit float planes first; a lossy
-                // 24 MP source measured about 27 bytes per pixel at peak.
-                .saturating_mul(if is_jxl { 32 } else { 12 })
-                .saturating_add(if !is_jxl {
-                    // j2k's working memory follows the region it decodes, after
-                    // discarding resolution levels. With j2k 0.13.1, 1024 px
-                    // tiles at every scale, RGB and gray, peaked at no more than
-                    // 3 bytes per decoded sample plus 2 MiB, output included.
-                    let (width, height) =
-                        pipeline::reduced_size(region, pipeline::reduction_level(region, size));
-                    (u64::from(width) * u64::from(height))
-                        .min(state.config.max_decode_pixels)
-                        .saturating_mul(u64::from(dimensions.2) * 4)
-                        .saturating_add(4 * 1_048_576)
-                } else {
-                    0
-                });
-            let needed = estimated_bytes.div_ceil(1_048_576).max(1);
-            let available = state.config.max_temp_bitmap_bytes / 1_048_576;
-            if needed > available {
-                return text_response(
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "temporary bitmap limit exceeded",
-                );
-            }
-            let temp_permit = match state
-                .temp_bitmaps
-                .clone()
-                .acquire_many_owned(needed as u32)
-                .await
-            {
-                Ok(permit) => permit,
-                Err(e) => return error_response(StatusCode::SERVICE_UNAVAILABLE, e),
-            };
-            let decode_permit = match state.decodes.acquire().await {
-                Ok(permit) => permit,
-                Err(e) => return error_response(StatusCode::SERVICE_UNAVAILABLE, e),
-            };
-            let started = Instant::now();
-            let rendered = if is_jxl {
-                pipeline::render_jxl(
-                    &source.path,
-                    region,
-                    size,
-                    &request,
-                    state.config.encoding,
-                    state.config.max_decode_pixels,
-                )
-                .await
+    drop(decode_permit);
+    Metrics::increment(&state.storage.metrics.render_count);
+    state.storage.metrics.render_duration_ns.fetch_add(
+        started.elapsed().as_nanos().min(u128::from(u64::MAX)) as u64,
+        std::sync::atomic::Ordering::Relaxed,
+    );
+    match rendered {
+        Ok(bytes) => {
+            Metrics::increment(if is_jxl {
+                &state.storage.metrics.jxl_renders
             } else {
-                pipeline::render_jp2(
-                    &source.path,
-                    region,
-                    size,
-                    &request,
-                    state.config.encoding,
-                    state.config.max_decode_pixels,
-                )
-                .await
-            };
-            drop(decode_permit);
-            Metrics::increment(&state.storage.metrics.render_count);
-            state.storage.metrics.render_duration_ns.fetch_add(
-                started.elapsed().as_nanos().min(u128::from(u64::MAX)) as u64,
-                std::sync::atomic::Ordering::Relaxed,
-            );
-            let data = match rendered {
-                Ok(bytes) => {
-                    Metrics::increment(if is_jxl {
-                        &state.storage.metrics.jxl_renders
-                    } else {
-                        &state.storage.metrics.j2k_renders
-                    });
-                    bytes
-                }
-                Err(e) => {
-                    error!(error = %e, "image render failed");
-                    return error_response(StatusCode::INTERNAL_SERVER_ERROR, e);
-                }
-            };
-            let key = state
-                .storage
-                .derivative_key(&identifier, &generation, raw_path);
-            // Keep the reservation while S3 and the HTTP response still hold
-            // references to the encoded image, including slow clients.
-            let bytes = Bytes::from_owner(RenderedBytes {
-                data,
-                _permit: temp_permit,
+                &state.storage.metrics.j2k_renders
             });
-            match state.storage.generation(&identifier).await {
-                Ok(current) if current == generation => {
-                    if let Err(e) = state
-                        .storage
-                        .put_derivative(&key, bytes.clone(), request.format.mime())
-                        .await
-                    {
-                        warn!(error = %e, "derivative cache write failed");
-                    }
-                }
-                Ok(_) => {}
-                Err(e) => warn!(error = %e, "could not check purge generation before cache write"),
-            }
-            image_response(bytes, request.format.mime())
+            Ok(bytes)
         }
-        Route::Base(_) => unreachable!(),
+        Err(e) => {
+            error!(error = %e, "image render failed");
+            Err(error_response(StatusCode::INTERNAL_SERVER_ERROR, e))
+        }
+    }
+}
+
+/// Caches the derivative unless the source was purged while it rendered.
+async fn store_derivative(
+    state: &AppState,
+    identifier: &str,
+    generation: &str,
+    key: &str,
+    bytes: Bytes,
+    mime: &'static str,
+) {
+    match state.storage.generation(identifier).await {
+        Ok(current) if current == generation => {
+            if let Err(e) = state.storage.put_derivative(key, bytes, mime).await {
+                warn!(error = %e, "derivative cache write failed");
+            }
+        }
+        Ok(_) => {}
+        Err(e) => warn!(error = %e, "could not check purge generation before cache write"),
     }
 }
 
