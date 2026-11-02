@@ -46,7 +46,7 @@ PNG, WebP, and JPEG XL output is always lossless and has no quality setting. Cha
 
 ## URLs and identifiers
 
-`PERSIMMON_IIIF_V3_PREFIX` changes only the IIIF routes; `/healthz`, `/metrics`, and `/admin/purge` stay at the root. Encode any slash inside an identifier as `%2F`. For example, with `PERSIMMON_PUBLIC_BASE_URL=https://images.example.edu/iiif` and the default prefix, the identifier `a/b` has information URL `/iiif/v3/a%2Fb/info.json`. When the public base URL includes a deployment path, forward that full path to the server.
+`PERSIMMON_IIIF_V3_PREFIX` changes only the IIIF routes; `/healthz`, `/livez`, `/metrics`, and `/admin/purge` stay at the root. Encode any slash inside an identifier as `%2F`. For example, with `PERSIMMON_PUBLIC_BASE_URL=https://images.example.edu/iiif` and the default prefix, the identifier `a/b` has information URL `/iiif/v3/a%2Fb/info.json`. When the public base URL includes a deployment path, forward that full path to the server.
 
 ## S3 permissions
 
@@ -77,6 +77,8 @@ Image responses allow downstream HTTP caches to keep them for one day. An admin 
 ## Monitoring
 
 `GET /healthz` returns `200` with the plain-text body `OK` when both S3 buckets can be queried. Otherwise it returns `503` with JSON giving an overall `status` and a result for each of `cache_bucket` and `source_bucket`; a failed check includes a short `error` such as an S3 error code (`AccessDenied`, `NoSuchBucket`), `could not connect to S3`, or `timed out`. Full error details are logged at `WARN` with the check name. Each check times out after three seconds, and results are cached for five seconds.
+
+`GET /livez` returns `200` with the plain-text body `OK` whenever the server is accepting requests. It does not contact S3, so use it for liveness probes and `/healthz` for readiness: an S3 outage then takes instances out of the load balancer without restarting them.
 
 `GET /metrics` returns per-instance Prometheus counters for S3 calls, source and derivative cache activity, rendering time, purges, and errors. It separates JP2 renders (`persimmon_j2k_renders_total`) from JPEG XL renders (`persimmon_jxl_renders_total`). The S3 request counter counts SDK calls made by this service; retries inside the SDK are not counted. Restrict this route at the load balancer if the metrics should remain internal.
 

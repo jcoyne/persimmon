@@ -47,6 +47,7 @@ pub fn router(state: Arc<AppState>) -> Router {
     let config = state.config.clone();
     Router::new()
         .route("/healthz", get(routes::health::health))
+        .route("/livez", get(routes::health::live))
         .route("/metrics", get(routes::metrics::metrics))
         .route("/admin/purge", post(routes::purge::purge))
         .fallback(routes::iiif::iiif_handler)

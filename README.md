@@ -19,7 +19,8 @@ Persimmon is an image server that implements the [IIIF Image API 3.0](https://ii
 | `GET /v3/{identifier}/{region}/{size}/{rotation}/{quality}.{format}` | An image (`jpg`, `png`, `webp`, `avif`, or `jxl`) |
 | `GET /v3/{identifier}` | Redirects to `info.json` |
 | `POST /admin/purge` | Clears cached images for `{"identifier":"a/b"}` (Basic auth) |
-| `GET /healthz` | Health check |
+| `GET /healthz` | Health check, including S3 access; use for readiness |
+| `GET /livez` | Liveness check; does not contact S3 |
 | `GET /metrics` | Prometheus metrics |
 
 The identifier is the S3 key of the source image. Encode any slash in it as `%2F`, so key `a/b.jp2` is requested as `/v3/a%2Fb.jp2/info.json`.

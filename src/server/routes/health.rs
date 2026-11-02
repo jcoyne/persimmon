@@ -76,16 +76,27 @@ impl HealthReport {
     /// Healthy responses keep the plain `OK` body that existing probes expect;
     /// failures return the JSON report so the failed check is visible.
     fn response(&self) -> Response {
-        let mut response = if self.is_ok() {
+        let response = if self.is_ok() {
             text_response(StatusCode::OK, "OK")
         } else {
             (StatusCode::SERVICE_UNAVAILABLE, Json(self.clone())).into_response()
         };
-        response
-            .headers_mut()
-            .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
-        response
+        no_store(response)
     }
+}
+
+fn no_store(mut response: Response) -> Response {
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
+}
+
+/// Liveness probe: answers whenever the server can handle requests at all. It
+/// deliberately skips the S3 checks in `health`, so an S3 outage takes
+/// instances out of rotation without getting them restarted.
+pub(crate) async fn live() -> Response {
+    no_store(text_response(StatusCode::OK, "OK"))
 }
 
 /// Summarizes an S3 failure for the public health response. The full error,
@@ -168,7 +179,7 @@ pub(crate) async fn health(State(state): State<Arc<AppState>>) -> Response {
 
 #[cfg(test)]
 mod tests {
-    use super::{HealthCheck, HealthChecks, HealthReport};
+    use super::{HealthCheck, HealthChecks, HealthReport, live};
     use axum::http::{StatusCode, header};
 
     #[test]
@@ -203,6 +214,16 @@ mod tests {
             response.headers()[header::CONTENT_TYPE],
             "text/plain; charset=utf-8"
         );
+        let body =
+            futures::executor::block_on(axum::body::to_bytes(response.into_body(), 64)).unwrap();
+        assert_eq!(body, "OK");
+    }
+
+    #[test]
+    fn live_is_ok_without_checks() {
+        let response = futures::executor::block_on(live());
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
         let body =
             futures::executor::block_on(axum::body::to_bytes(response.into_body(), 64)).unwrap();
         assert_eq!(body, "OK");
