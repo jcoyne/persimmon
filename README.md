@@ -40,6 +40,8 @@ Build the Docker image for your machine, or add `--platform linux/amd64` for an 
 docker buildx build --load -t persimmon:dev .
 ```
 
+CI publishes a Linux `amd64` image for each commit on `main` that passes the checks, as `ghcr.io/jcoyne/persimmon:<12-character commit SHA>` and `ghcr.io/jcoyne/persimmon:main`.
+
 ## Configuring
 
 Persimmon is configured with environment variables. See [Configuring.md](Configuring.md).
