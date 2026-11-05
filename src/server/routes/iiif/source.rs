@@ -10,7 +10,8 @@ use crate::{
 
 use super::Step;
 
-pub(super) async fn current_generation(state: &AppState, identifier: &str) -> Step<String> {
+/// Reads the purge-controlled generation token that namespaces cached responses.
+pub(super) async fn current_cache_generation(state: &AppState, identifier: &str) -> Step<String> {
     state
         .storage
         .generation(identifier)

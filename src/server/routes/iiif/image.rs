@@ -41,7 +41,7 @@ pub(super) async fn serve(
 ) -> Step<Response> {
     let identifier = &request.identifier;
     let mime = request.format.mime();
-    let generation = source::current_generation(state, identifier).await?;
+    let generation = source::current_cache_generation(state, identifier).await?;
     let key = state
         .storage
         .derivative_key(identifier, &generation, raw_path);
