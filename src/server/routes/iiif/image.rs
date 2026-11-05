@@ -7,7 +7,7 @@ use axum::{
 };
 use bytes::Bytes;
 use tokio::sync::OwnedSemaphorePermit;
-use tracing::{error, warn};
+use tracing::warn;
 
 use crate::{
     config::Config,
@@ -193,10 +193,7 @@ async fn render(
             });
             Ok(bytes)
         }
-        Err(e) => {
-            error!(error = %e, "image render failed");
-            Err(error_response(StatusCode::INTERNAL_SERVER_ERROR, e))
-        }
+        Err(e) => Err(error_response(StatusCode::INTERNAL_SERVER_ERROR, e)),
     }
 }
 

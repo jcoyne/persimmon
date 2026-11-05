@@ -21,6 +21,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --check
       - run: cargo clippy --all-targets --locked -- -D warnings
+      - run: cargo clippy --all-targets --locked --features honeybadger -- -D warnings
       - run: cargo test --locked
 
   # Publishes an image for each commit on main that passes the checks, tagged

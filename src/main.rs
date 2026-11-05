@@ -16,6 +16,9 @@ async fn main() -> anyhow::Result<()> {
         )
         .json()
         .init();
+    // Dropping the guard at the end of main delivers any queued notices.
+    #[cfg(feature = "honeybadger")]
+    let _honeybadger = init_honeybadger()?;
     let command = std::env::args().nth(1);
     if matches!(command.as_deref(), Some("prune-cache" | "prune-cache-loop")) {
         let config = PruneConfig::from_env()?;
@@ -89,6 +92,19 @@ async fn main() -> anyhow::Result<()> {
     }
     info!("persimmon stopped");
     Ok(())
+}
+
+/// Starts error reporting only when an API key is configured, so the same image runs without it.
+/// The SDK reads the key and its other settings from `HONEYBADGER_*` environment variables.
+#[cfg(feature = "honeybadger")]
+fn init_honeybadger() -> anyhow::Result<Option<honeybadger::Guard>> {
+    if std::env::var_os("HONEYBADGER_API_KEY").is_none_or(|key| key.is_empty()) {
+        return Ok(None);
+    }
+    let config = honeybadger::Config::builder().build()?;
+    let guard = honeybadger::init(config)?;
+    info!("honeybadger error reporting enabled");
+    Ok(Some(guard))
 }
 
 /// Resolves on SIGTERM or SIGINT. The handlers are installed before this returns, so a signal

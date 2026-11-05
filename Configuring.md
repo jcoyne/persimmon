@@ -84,3 +84,15 @@ Image and `info.json` responses allow downstream HTTP caches to keep them for on
 `GET /metrics` returns per-instance Prometheus counters for S3 calls, source and derivative cache activity, rendering time, purges, and errors. It separates JP2 renders (`persimmon_j2k_renders_total`) from JPEG XL renders (`persimmon_jxl_renders_total`). The S3 request counter counts SDK calls made by this service; retries inside the SDK are not counted. Restrict this route at the load balancer if the metrics should remain internal.
 
 Structured access logs at the `info` level include request method, URI, response status, and latency. Valid IIIF requests also include an `identifier` field containing the decoded source key (for example, `a%2Fb.jp2` logs as `a/b.jp2`).
+
+## Error reporting
+
+Builds with the optional `honeybadger` Cargo feature report server errors (`5xx` responses other than `501`) and panics to [Honeybadger](https://www.honeybadger.io). Reporting starts only when `HONEYBADGER_API_KEY` is set, so the same binary also runs without it. Notices are sent from a background thread and never delay a response.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `HONEYBADGER_API_KEY` | Unset | Project API key. Reporting is off without it. |
+| `HONEYBADGER_ENV` | Unset | Environment name shown in Honeybadger. The SDK does not report from `development` or `test` unless `HONEYBADGER_ENABLED=true`. |
+| `HONEYBADGER_REVISION` | Build argument `PERSIMMON_REVISION` | Source revision attached to each notice. |
+
+The SDK reads its other `HONEYBADGER_*` settings, such as `HONEYBADGER_ENDPOINT`, from the environment as well. Requests shed under load (`503` from the in-flight request or temporary bitmap limit) are not reported.

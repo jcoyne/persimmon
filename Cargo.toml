@@ -16,6 +16,8 @@ base64 = "0.23"
 bytes = "1"
 futures = "0.3"
 hex = "0.4"
+# Not yet on crates.io, where the name belongs to an older, unrelated crate.
+honeybadger = { git = "https://github.com/honeybadger-io/honeybadger-rust", rev = "5d4d3103989d292f56f78de711d0798d875e190f", optional = true }
 http = "1"
 image = { version = "0.25", default-features = false, features = ["avif", "bmp", "jpeg", "png", "webp", "pnm"] }
 j2k = "0.13"
@@ -32,6 +34,10 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 uuid = { version = "1", features = ["v4"] }
 zune-core = "0.5"
 zune-jpegxl = "0.5"
+
+[features]
+# Reports server errors and panics to Honeybadger when HONEYBADGER_API_KEY is set.
+honeybadger = ["dep:honeybadger"]
 
 [dev-dependencies]
 tempfile = "3"

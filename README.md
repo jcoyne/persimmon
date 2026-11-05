@@ -40,6 +40,8 @@ Build the Docker image for your machine, or add `--platform linux/amd64` for an 
 docker buildx build --load -t persimmon:dev .
 ```
 
+To report errors to Honeybadger, build with the optional `honeybadger` feature: `cargo build --release --features honeybadger`, or `--build-arg CARGO_FEATURES=honeybadger` for the image. See [Configuring.md](Configuring.md#error-reporting).
+
 CI publishes a Linux `amd64` image for each commit on `main` that passes the checks, as `ghcr.io/jcoyne/persimmon:<12-character commit SHA>` and `ghcr.io/jcoyne/persimmon:main`.
 
 ## Configuring
