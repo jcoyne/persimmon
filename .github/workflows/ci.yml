@@ -12,7 +12,7 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Matches rust-version in Cargo.toml; the j2k crate needs Rust 1.99 or newer.
       - uses: dtolnay/rust-toolchain@master
         with:
@@ -33,7 +33,7 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: tag
         run: echo "sha=${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
       - uses: docker/setup-buildx-action@v4

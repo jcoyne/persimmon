@@ -12,7 +12,7 @@ aws-config = "1"
 aws-sdk-s3 = "1"
 axum = { version = "0.8", features = ["json"] }
 axum-server = { version = "0.8", features = ["tls-rustls"] }
-base64 = "0.22"
+base64 = "0.23"
 bytes = "1"
 futures = "0.3"
 hex = "0.4"
@@ -23,10 +23,10 @@ jxl-oxide = { version = "0.12", default-features = false }
 memmap2 = "0.9"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-sha2 = "0.10"
+sha2 = "0.11"
 subtle = "2"
 tokio = { version = "1", features = ["full"] }
-tower-http = { version = "0.6", features = ["cors", "trace"] }
+tower-http = { version = "0.7", features = ["cors", "trace"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 uuid = { version = "1", features = ["v4"] }
