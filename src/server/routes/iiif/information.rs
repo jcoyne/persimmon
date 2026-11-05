@@ -1,11 +1,25 @@
+use std::sync::Arc;
+
 use axum::{
-    http::{HeaderMap, StatusCode, header},
+    body::Body,
+    http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
 };
+use bytes::Bytes;
+use tracing::warn;
 
-use crate::{config::Config, server::AppState};
+use crate::{
+    config::Config,
+    metrics::Metrics,
+    server::{AppState, response::error_response},
+    storage::{Derivative, hash},
+};
 
-use super::{Step, base_uri, source};
+use super::{PUBLIC_CACHE_CONTROL, Step, base_uri, source};
+
+// Increment this when the serialized information document changes in a way
+// not represented by the configuration values in information_cache_variant.
+const INFORMATION_CACHE_VERSION: u8 = 1;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum InfoMedia {
@@ -146,6 +160,18 @@ fn info_document(config: &Config, identifier: &str, width: u32, height: u32) -> 
     info
 }
 
+fn information_cache_variant(config: &Config) -> String {
+    format!(
+        "info-v{}\0{}\0{}\0{}\0{}\0{}.json",
+        INFORMATION_CACHE_VERSION,
+        config.public_base_url,
+        config.iiif_prefix,
+        config.max_output_pixels,
+        config.min_size,
+        config.min_tile_size,
+    )
+}
+
 pub(super) async fn serve(
     state: &AppState,
     identifier: &str,
@@ -160,31 +186,129 @@ pub(super) async fn serve(
             .into_response()
     })?;
     let generation = source::current_generation(state, identifier).await?;
+    let key = state.storage.derivative_key(
+        identifier,
+        &generation,
+        &information_cache_variant(&state.config),
+    );
+    if let Some(response) = cached_information(state, &key, media).await? {
+        return Ok(response);
+    }
+    // Serialize once when concurrent requests miss the same information
+    // document. JSON and JSON-LD share bytes and negotiate only their media
+    // type, so they can safely use the same cache entry.
+    let digest = hash(&key);
+    let index = usize::from(u8::from_str_radix(&digest[..2], 16).expect("hash prefix"));
+    let _derivative_guard = state.derivative_locks[index].lock().await;
+    if let Some(response) = cached_information(state, &key, media).await? {
+        return Ok(response);
+    }
     let source = source::fetch(state, identifier, &generation).await?;
     let ((width, height, _), _) = source::probe(&source.path).await?;
-    let body = serde_json::to_vec(&info_document(&state.config, identifier, width, height))
-        .expect("serialize JSON");
-    let content_type = match media {
+    let bytes = Bytes::from(
+        serde_json::to_vec(&info_document(&state.config, identifier, width, height))
+            .expect("serialize JSON"),
+    );
+    store_information(state, identifier, &generation, &key, bytes.clone()).await;
+    Ok(information_response(bytes, media))
+}
+
+fn content_type(media: InfoMedia) -> &'static str {
+    match media {
         InfoMedia::JsonLd => {
             "application/ld+json;profile=\"http://iiif.io/api/image/3/context.json\""
         }
         InfoMedia::Json => "application/json",
-    };
-    Ok((
-        StatusCode::OK,
-        [
-            (header::CONTENT_TYPE, content_type),
-            (header::VARY, "Accept"),
-        ],
-        body,
-    )
-        .into_response())
+    }
+}
+
+async fn cached_information(
+    state: &AppState,
+    key: &str,
+    media: InfoMedia,
+) -> Step<Option<Response>> {
+    match state.storage.get_derivative(key).await {
+        Ok(cached) => Ok(cached
+            .map(|data| cached_information_response(data, media, state.storage.metrics.clone()))),
+        Err(e) => Err(error_response(StatusCode::SERVICE_UNAVAILABLE, e)),
+    }
+}
+
+/// Caches the information document unless the source was purged while it was built.
+async fn store_information(
+    state: &AppState,
+    identifier: &str,
+    generation: &str,
+    key: &str,
+    bytes: Bytes,
+) {
+    match state.storage.generation(identifier).await {
+        Ok(current) if current == generation => {
+            if let Err(e) = state
+                .storage
+                .put_derivative(key, bytes, "application/json")
+                .await
+            {
+                warn!(error = %e, "information cache write failed");
+            }
+        }
+        Ok(_) => {}
+        Err(e) => {
+            warn!(error = %e, "could not check purge generation before information cache write")
+        }
+    }
+}
+
+fn information_response(data: Bytes, media: InfoMedia) -> Response {
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static(content_type(media)),
+        )
+        .header(header::VARY, "Accept")
+        .header(header::CACHE_CONTROL, PUBLIC_CACHE_CONTROL)
+        .header(header::CONTENT_LENGTH, data.len().to_string())
+        .body(Body::from(data))
+        .expect("valid information response")
+}
+
+fn cached_information_response(
+    cached: Derivative,
+    media: InfoMedia,
+    metrics: Arc<Metrics>,
+) -> Response {
+    let mut response = Response::builder()
+        .status(StatusCode::OK)
+        .header(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static(content_type(media)),
+        )
+        .header(header::VARY, "Accept")
+        .header(header::CACHE_CONTROL, PUBLIC_CACHE_CONTROL);
+    if let Some(size) = cached.size {
+        response = response.header(header::CONTENT_LENGTH, size.to_string());
+    }
+    let stream =
+        futures::stream::unfold((cached.body, metrics), |(mut body, metrics)| async move {
+            body.next().await.map(|chunk| {
+                if let Err(error) = &chunk {
+                    Metrics::increment(&metrics.errors);
+                    warn!(error = %error, "cached information stream failed");
+                }
+                (chunk, (body, metrics))
+            })
+        });
+    response
+        .body(Body::from_stream(stream))
+        .expect("valid cached information response")
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{InfoMedia, info_media, info_sizes};
+    use super::{InfoMedia, info_media, info_sizes, information_response};
     use axum::http::{HeaderMap, header};
+    use bytes::Bytes;
 
     #[test]
     fn negotiates_image_information_media_type() {
@@ -256,5 +380,17 @@ mod tests {
             info_sizes(32, 16, 64, 1_000),
             vec![serde_json::json!({"width": 32, "height": 16})]
         );
+    }
+
+    #[test]
+    fn information_response_is_publicly_cacheable_and_varies_on_accept() {
+        let response = information_response(Bytes::from_static(b"{}"), InfoMedia::Json);
+        assert_eq!(response.headers()[header::CONTENT_TYPE], "application/json");
+        assert_eq!(response.headers()[header::VARY], "Accept");
+        assert_eq!(
+            response.headers()[header::CACHE_CONTROL],
+            "public, max-age=86400"
+        );
+        assert_eq!(response.headers()[header::CONTENT_LENGTH], "2");
     }
 }

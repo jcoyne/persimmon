@@ -72,7 +72,7 @@ The job lists derivatives, totals their sizes, and deletes the oldest objects un
 
 ## Caching and purges
 
-Image responses allow downstream HTTP caches to keep them for one day. An admin purge invalidates server caches; browsers and proxies may continue serving the previous response until their cached copy expires.
+Image and `info.json` responses allow downstream HTTP caches to keep them for one day. Serialized `info.json` documents share the S3 derivative cache and are scoped to the source generation and information-related configuration. An admin purge invalidates server caches; browsers and proxies may continue serving the previous response until their cached copy expires.
 
 ## Monitoring
 

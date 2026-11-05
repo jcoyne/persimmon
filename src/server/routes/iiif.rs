@@ -25,6 +25,8 @@ mod image;
 mod information;
 mod source;
 
+const PUBLIC_CACHE_CONTROL: &str = "public, max-age=86400";
+
 fn encoded_identifier(identifier: &str) -> String {
     let mut out = String::new();
     for byte in identifier.bytes() {

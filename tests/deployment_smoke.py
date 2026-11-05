@@ -54,6 +54,10 @@ def main():
     check(status == 200, f"info.json: HTTP {status}")
     check(headers.get_content_type() == "application/ld+json", "info.json: expected JSON-LD")
     check("Accept" in headers.get("Vary", ""), "info.json: missing Vary: Accept")
+    check(
+        headers.get("Cache-Control") == "public, max-age=86400",
+        "info.json: unexpected Cache-Control",
+    )
     info = json.loads(body)
     check(info.get("id") == service, f"info.json id differs: {info.get('id')}")
     check(info.get("type") == "ImageService3", "info.json: unexpected type")

@@ -21,7 +21,7 @@ use crate::{
     storage::{Derivative, hash},
 };
 
-use super::{Step, source};
+use super::{PUBLIC_CACHE_CONTROL, Step, source};
 
 struct RenderedBytes {
     data: Vec<u8>,
@@ -224,7 +224,7 @@ fn image_response(data: Bytes, mime: &'static str) -> Response {
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, HeaderValue::from_static(mime))
-        .header(header::CACHE_CONTROL, "public, max-age=86400")
+        .header(header::CACHE_CONTROL, PUBLIC_CACHE_CONTROL)
         .header(header::CONTENT_LENGTH, data.len().to_string())
         .body(Body::from(data))
         .expect("valid image response")
@@ -238,7 +238,7 @@ fn cached_image_response(
     let mut response = Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, HeaderValue::from_static(mime))
-        .header(header::CACHE_CONTROL, "public, max-age=86400");
+        .header(header::CACHE_CONTROL, PUBLIC_CACHE_CONTROL);
     if let Some(size) = derivative.size {
         response = response.header(header::CONTENT_LENGTH, size.to_string());
     }
