@@ -141,6 +141,9 @@ pub(crate) async fn health(State(state): State<Arc<AppState>>) -> Response {
     {
         return report.response();
     }
+    let Some(_admission) = state.try_admit() else {
+        return no_store(crate::server::overloaded_response());
+    };
     let cache = state
         .storage
         .s3

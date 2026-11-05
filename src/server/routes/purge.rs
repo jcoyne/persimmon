@@ -64,6 +64,9 @@ pub(crate) async fn purge(
     if !iiif::valid_identifier(&input.identifier) {
         return text_response(StatusCode::BAD_REQUEST, "invalid identifier");
     }
+    let Some(_admission) = state.try_admit() else {
+        return crate::server::overloaded_response();
+    };
     match state.storage.purge(&input.identifier).await {
         Ok(generation) => {
             let storage = state.storage.clone();

@@ -4,12 +4,12 @@ use axum::{
     Router,
     body::Body,
     extract::State,
-    http::Request,
+    http::{Request, StatusCode, header},
     middleware::{self, Next},
-    response::Response,
+    response::{IntoResponse, Response},
     routing::{get, post},
 };
-use tokio::sync::{Mutex, Semaphore};
+use tokio::sync::{Mutex, Semaphore, SemaphorePermit};
 use tower_http::cors::CorsLayer;
 use tracing::{Instrument, info};
 
@@ -23,6 +23,7 @@ pub struct AppState {
     config: Arc<Config>,
     storage: Arc<Storage>,
     decodes: Semaphore,
+    requests: Semaphore,
     temp_bitmaps: Arc<Semaphore>,
     derivative_locks: Vec<Mutex<()>>,
     health: Mutex<Option<(Instant, HealthReport)>>,
@@ -32,6 +33,7 @@ impl AppState {
     pub fn new(config: Arc<Config>, storage: Arc<Storage>) -> Self {
         Self {
             decodes: Semaphore::new(config.max_parallel_decodes),
+            requests: Semaphore::new(config.max_in_flight_requests),
             temp_bitmaps: Arc::new(Semaphore::new(
                 (config.max_temp_bitmap_bytes / 1_048_576) as usize,
             )),
@@ -41,6 +43,24 @@ impl AppState {
             storage,
         }
     }
+
+    /// Admits work without adding an unbounded waiter to an internal queue.
+    pub(crate) fn try_admit(&self) -> Option<SemaphorePermit<'_>> {
+        try_permit(&self.requests)
+    }
+}
+
+fn try_permit(semaphore: &Semaphore) -> Option<SemaphorePermit<'_>> {
+    semaphore.try_acquire().ok()
+}
+
+pub(crate) fn overloaded_response() -> Response {
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        [(header::RETRY_AFTER, "1")],
+        "Server is busy; retry later",
+    )
+        .into_response()
 }
 
 pub fn router(state: Arc<AppState>) -> Router {
@@ -84,4 +104,28 @@ async fn log_request(
         info!(parent: &span, %method, %uri, status, ?latency, "finished processing request");
     }
     response
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::http::{StatusCode, header};
+    use tokio::sync::Semaphore;
+
+    use super::{overloaded_response, try_permit};
+
+    #[test]
+    fn admission_fails_immediately_when_capacity_is_used() {
+        let semaphore = Semaphore::new(1);
+        let permit = try_permit(&semaphore).expect("first request is admitted");
+        assert!(try_permit(&semaphore).is_none());
+        drop(permit);
+        assert!(try_permit(&semaphore).is_some());
+    }
+
+    #[test]
+    fn overload_response_tells_clients_to_retry() {
+        let response = overloaded_response();
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(response.headers()[header::RETRY_AFTER], "1");
+    }
 }
