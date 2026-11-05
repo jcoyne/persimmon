@@ -139,18 +139,47 @@ fn info_media(headers: &HeaderMap) -> Option<InfoMedia> {
     }
 }
 
-fn info_document(config: &Config, identifier: &str, width: u32, height: u32) -> serde_json::Value {
-    let mut sizes = Vec::new();
-    let (mut w, mut h) = iiif::max_size(width, height, config.max_output_pixels);
-    while w >= config.min_size && h >= config.min_size {
-        sizes.push(serde_json::json!({"width": w, "height": h}));
-        if w <= 1 || h <= 1 {
-            break;
-        }
-        w = w.div_ceil(2);
-        h = h.div_ceil(2);
+fn info_sizes(width: u32, height: u32, min_size: u32, max_pixels: u64) -> Vec<serde_json::Value> {
+    let full_area = u64::from(width) * u64::from(height);
+
+    // Cantaloupe computes the lower bound by repeatedly quartering the full
+    // image area. This keeps every advertised size on the source image's
+    // power-of-two series instead of first scaling to an arbitrary max area.
+    let mut min_reduction = 0u32;
+    let mut area_divisor = 1u128;
+    while u128::from(full_area) > u128::from(max_pixels) * area_divisor {
+        min_reduction += 1;
+        area_divisor *= 4;
     }
-    sizes.reverse();
+
+    // The full size is always eligible at this end of the range. Additional
+    // halvings are eligible while the smaller unrounded dimension remains at
+    // least min_size.
+    let mut max_reduction = 0u32;
+    let smaller_dimension = u64::from(width.min(height));
+    while smaller_dimension >= u64::from(min_size) * (1u64 << (max_reduction + 1)) {
+        max_reduction += 1;
+    }
+
+    if min_reduction > max_reduction {
+        return Vec::new();
+    }
+
+    (min_reduction..=max_reduction)
+        .rev()
+        .map(|reduction| {
+            let divisor = 1u64 << reduction;
+            // Java's Math.round(), used by Cantaloupe, rounds positive halves
+            // up. Do the same directly from the virtual full dimensions.
+            let rounded_width = (u64::from(width) + divisor / 2) / divisor;
+            let rounded_height = (u64::from(height) + divisor / 2) / divisor;
+            serde_json::json!({"width": rounded_width, "height": rounded_height})
+        })
+        .collect()
+}
+
+fn info_document(config: &Config, identifier: &str, width: u32, height: u32) -> serde_json::Value {
+    let sizes = info_sizes(width, height, config.min_size, config.max_output_pixels);
     let tile_width = config.min_tile_size.max(1);
     let mut factors = Vec::new();
     let mut factor = 1u32;
@@ -170,13 +199,11 @@ fn info_document(config: &Config, identifier: &str, width: u32, height: u32) -> 
         "width": width,
         "height": height,
         "maxArea": config.max_output_pixels,
+        "sizes": sizes,
         "preferredFormats": ["webp", "avif", "jpg"],
         "extraFormats": ["webp", "avif", "jxl"],
         "extraQualities": ["color", "gray"]
     });
-    if !sizes.is_empty() {
-        info["sizes"] = serde_json::json!(sizes);
-    }
     if width.max(height) >= tile_width
         && u64::from(tile_width) * u64::from(tile_width) <= config.max_output_pixels
     {
@@ -534,7 +561,8 @@ fn cached_image_response(
 #[cfg(test)]
 mod tests {
     use super::{
-        InfoMedia, RenderedBytes, iiif_path, image_response, info_media, requested_identifier,
+        InfoMedia, RenderedBytes, iiif_path, image_response, info_media, info_sizes,
+        requested_identifier,
     };
     use axum::http::{HeaderMap, header};
     use bytes::Bytes;
@@ -616,5 +644,48 @@ mod tests {
             headers.insert(header::ACCEPT, accept.parse().unwrap());
             assert_eq!(info_media(&headers), expected, "{accept}");
         }
+    }
+
+    #[test]
+    fn information_sizes_match_cantaloupes_power_of_two_series() {
+        assert_eq!(
+            info_sizes(1500, 1200, 64, 100_000_000),
+            vec![
+                serde_json::json!({"width": 94, "height": 75}),
+                serde_json::json!({"width": 188, "height": 150}),
+                serde_json::json!({"width": 375, "height": 300}),
+                serde_json::json!({"width": 750, "height": 600}),
+                serde_json::json!({"width": 1500, "height": 1200}),
+            ]
+        );
+    }
+
+    #[test]
+    fn information_sizes_apply_upper_and_lower_reduction_bounds() {
+        assert_eq!(
+            info_sizes(1500, 1200, 64, 112_500),
+            vec![
+                serde_json::json!({"width": 94, "height": 75}),
+                serde_json::json!({"width": 188, "height": 150}),
+                serde_json::json!({"width": 375, "height": 300}),
+            ]
+        );
+        assert!(info_sizes(1500, 1200, 64, 1_000).is_empty());
+    }
+
+    #[test]
+    fn information_sizes_round_each_size_from_the_full_dimensions() {
+        assert_eq!(
+            info_sizes(5, 5, 1, 100),
+            vec![
+                serde_json::json!({"width": 1, "height": 1}),
+                serde_json::json!({"width": 3, "height": 3}),
+                serde_json::json!({"width": 5, "height": 5}),
+            ]
+        );
+        assert_eq!(
+            info_sizes(32, 16, 64, 1_000),
+            vec![serde_json::json!({"width": 32, "height": 16})]
+        );
     }
 }

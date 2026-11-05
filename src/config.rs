@@ -167,6 +167,7 @@ impl Config {
             || config.max_decode_pixels < config.max_output_pixels
             || config.max_parallel_decodes == 0
             || config.max_parallel_downloads == 0
+            || config.min_size == 0
             || config.min_tile_size == 0
         {
             anyhow::bail!("invalid resource limits");
