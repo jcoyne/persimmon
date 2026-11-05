@@ -88,10 +88,21 @@ pub(crate) async fn iiif_handler(
 type Step<T> = Result<T, Response>;
 
 async fn serve(state: &AppState, raw_path: &str, headers: &HeaderMap) -> Step<Response> {
-    match parse_request(raw_path, &state.config.route_prefix)? {
+    let route = parse_request(raw_path, &state.config.route_prefix)?;
+    match route {
         Route::Base(identifier) => Ok(redirect_to_info(&state.config, &identifier)),
-        Route::Info(identifier) => information::serve(state, &identifier, headers).await,
-        Route::Image(request) => image::serve(state, raw_path, &request).await,
+        Route::Info(identifier) => {
+            let _admission = state
+                .try_admit()
+                .ok_or_else(crate::server::overloaded_response)?;
+            information::serve(state, &identifier, headers).await
+        }
+        Route::Image(request) => {
+            let _admission = state
+                .try_admit()
+                .ok_or_else(crate::server::overloaded_response)?;
+            image::serve(state, raw_path, &request).await
+        }
     }
 }
 

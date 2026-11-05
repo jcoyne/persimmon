@@ -22,6 +22,7 @@ pub struct Config {
     pub max_temp_bitmap_bytes: u64,
     pub max_parallel_decodes: usize,
     pub max_parallel_downloads: usize,
+    pub max_in_flight_requests: usize,
     pub min_size: u32,
     pub min_tile_size: u32,
     pub encoding: EncodeSettings,
@@ -147,6 +148,7 @@ impl Config {
             max_temp_bitmap_bytes: value("PERSIMMON_MAX_TEMP_BITMAP_BYTES", 2_000_000_000)?,
             max_parallel_decodes: value("PERSIMMON_MAX_PARALLEL_DECODES", 8)?,
             max_parallel_downloads: value("PERSIMMON_MAX_PARALLEL_DOWNLOADS", 8)?,
+            max_in_flight_requests: value("PERSIMMON_MAX_IN_FLIGHT_REQUESTS", 64)?,
             min_size: value("PERSIMMON_MIN_SIZE", 64)?,
             min_tile_size: value("PERSIMMON_MIN_TILE_SIZE", 1024)?,
             encoding: EncodeSettings {
@@ -167,6 +169,8 @@ impl Config {
             || config.max_decode_pixels < config.max_output_pixels
             || config.max_parallel_decodes == 0
             || config.max_parallel_downloads == 0
+            || config.max_in_flight_requests == 0
+            || config.max_in_flight_requests > tokio::sync::Semaphore::MAX_PERMITS
             || config.min_size == 0
             || config.min_tile_size == 0
         {

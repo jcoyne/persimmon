@@ -34,6 +34,7 @@ fn test_config(
         max_temp_bitmap_bytes: 1_048_576,
         max_parallel_decodes: 8,
         max_parallel_downloads: 8,
+        max_in_flight_requests: 8,
         min_size: 64,
         min_tile_size: 1024,
         encoding: EncodeSettings::default(),
