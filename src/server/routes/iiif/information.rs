@@ -27,6 +27,7 @@ enum InfoMedia {
     Json,
 }
 
+/// Selects the supported information representation preferred by the request's Accept header.
 fn info_media(headers: &HeaderMap) -> Option<InfoMedia> {
     if !headers.contains_key(header::ACCEPT) {
         return Some(InfoMedia::JsonLd);
@@ -87,12 +88,13 @@ fn info_media(headers: &HeaderMap) -> Option<InfoMedia> {
     }
 }
 
+/// Generates advertised IIIF sizes as power-of-two reductions within the configured bounds.
 fn info_sizes(width: u32, height: u32, min_size: u32, max_pixels: u64) -> Vec<serde_json::Value> {
     let full_area = u64::from(width) * u64::from(height);
 
-    // Cantaloupe computes the lower bound by repeatedly quartering the full
-    // image area. This keeps every advertised size on the source image's
-    // power-of-two series instead of first scaling to an arbitrary max area.
+    // Compute the lower bound by repeatedly quartering the full image area.
+    // This keeps every advertised size on the source image's power-of-two
+    // series instead of first scaling to an arbitrary max area.
     let mut min_reduction = 0u32;
     let mut area_divisor = 1u128;
     while u128::from(full_area) > u128::from(max_pixels) * area_divisor {
@@ -117,8 +119,8 @@ fn info_sizes(width: u32, height: u32, min_size: u32, max_pixels: u64) -> Vec<se
         .rev()
         .map(|reduction| {
             let divisor = 1u64 << reduction;
-            // Java's Math.round(), used by Cantaloupe, rounds positive halves
-            // up. Do the same directly from the virtual full dimensions.
+            // Round positive halves up directly from the full dimensions so
+            // odd dimensions scale consistently at every reduction factor.
             let rounded_width = (u64::from(width) + divisor / 2) / divisor;
             let rounded_height = (u64::from(height) + divisor / 2) / divisor;
             serde_json::json!({"width": rounded_width, "height": rounded_height})
@@ -126,6 +128,7 @@ fn info_sizes(width: u32, height: u32, min_size: u32, max_pixels: u64) -> Vec<se
         .collect()
 }
 
+/// Builds the IIIF Image API 3 information document for the source dimensions.
 fn info_document(config: &Config, identifier: &str, width: u32, height: u32) -> serde_json::Value {
     let sizes = info_sizes(width, height, config.min_size, config.max_output_pixels);
     let tile_width = config.min_tile_size.max(1);
@@ -160,6 +163,7 @@ fn info_document(config: &Config, identifier: &str, width: u32, height: u32) -> 
     info
 }
 
+/// Identifies the configuration-dependent variant of a cached information document.
 fn information_cache_variant(config: &Config) -> String {
     format!(
         "info-v{}\0{}\0{}\0{}\0{}\0{}.json",
@@ -172,6 +176,7 @@ fn information_cache_variant(config: &Config) -> String {
     )
 }
 
+/// Serves an information request from cache or builds and caches it on a miss.
 pub(super) async fn serve(
     state: &AppState,
     identifier: &str,
@@ -213,6 +218,7 @@ pub(super) async fn serve(
     Ok(information_response(bytes, media))
 }
 
+/// Returns the response Content-Type for the negotiated information representation.
 fn content_type(media: InfoMedia) -> &'static str {
     match media {
         InfoMedia::JsonLd => {
@@ -222,6 +228,7 @@ fn content_type(media: InfoMedia) -> &'static str {
     }
 }
 
+/// Loads a cached information document and turns it into a negotiated HTTP response.
 async fn cached_information(
     state: &AppState,
     key: &str,
@@ -259,6 +266,7 @@ async fn store_information(
     }
 }
 
+/// Builds a complete HTTP response around a newly generated information document.
 fn information_response(data: Bytes, media: InfoMedia) -> Response {
     Response::builder()
         .status(StatusCode::OK)
@@ -273,6 +281,7 @@ fn information_response(data: Bytes, media: InfoMedia) -> Response {
         .expect("valid information response")
 }
 
+/// Streams a cached information document with the same headers as a fresh response.
 fn cached_information_response(
     cached: Derivative,
     media: InfoMedia,
@@ -340,7 +349,7 @@ mod tests {
     }
 
     #[test]
-    fn information_sizes_match_cantaloupes_power_of_two_series() {
+    fn information_sizes_form_a_power_of_two_series() {
         assert_eq!(
             info_sizes(1500, 1200, 64, 100_000_000),
             vec![
