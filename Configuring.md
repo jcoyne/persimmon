@@ -27,7 +27,7 @@ The AWS SDK default credential chain supplies S3 credentials and region. An inst
 | `PERSIMMON_LOCAL_CACHE_BYTES` | `2000000000` | Local source cache target in bytes. Set to `0` to keep sources only while requests use them. |
 | `PERSIMMON_DERIVATIVE_CACHE_BYTES` | `10000000000` | Shared S3 derivative cache target in bytes. |
 | `PERSIMMON_PRUNE_INTERVAL_SECONDS` | `3600` | Seconds between passes when running `prune-cache-loop`. |
-| `PERSIMMON_MAX_SOURCE_BYTES` | `250000000` | Largest accepted source file in bytes. |
+| `PERSIMMON_MAX_SOURCE_BYTES` | `250000000` | Largest accepted source file in bytes. Requests for a larger source fail with `500`, and the error message gives the source size. |
 | `PERSIMMON_MAX_TEMP_BITMAP_BYTES` | `2000000000` | Per-instance budget for concurrent decode working memory, intermediate bitmaps, and newly encoded response buffers. A response retains its reservation until its final byte buffer is released. |
 | `PERSIMMON_MAX_OUTPUT_PIXELS` | `100000000` | Largest output image area. Reported as `maxArea` in `info.json`. |
 | `PERSIMMON_MAX_DECODE_PIXELS` | `100000000` | Largest decoded region area, after discarding JP2 resolution levels, accepted by the JP2 and JPEG XL decoders. Must be at least the output pixel limit. |

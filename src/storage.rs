@@ -32,6 +32,26 @@ impl std::fmt::Display for SourceNotFound {
 
 impl std::error::Error for SourceNotFound {}
 
+/// The source object is larger than `PERSIMMON_MAX_SOURCE_BYTES`. Retrying will not help.
+#[derive(Debug)]
+pub struct SourceTooLarge {
+    /// The object's size, or the bytes read before the limit was crossed when S3 omits it.
+    pub size: u64,
+    pub limit: u64,
+}
+
+impl std::fmt::Display for SourceTooLarge {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "source exceeds configured byte limit ({} > {} bytes)",
+            self.size, self.limit
+        )
+    }
+}
+
+impl std::error::Error for SourceTooLarge {}
+
 pub fn hash(value: &str) -> String {
     hex::encode(Sha256::digest(value.as_bytes()))
 }
@@ -346,11 +366,12 @@ impl Storage {
             }
             Err(e) => return Err(e).with_context(|| format!("source image unavailable: {key}")),
         };
-        if output
-            .content_length()
-            .is_some_and(|n| n < 0 || n as u64 > self.config.max_source_bytes)
-        {
-            anyhow::bail!("source exceeds configured byte limit");
+        let limit = self.config.max_source_bytes;
+        if let Some(n) = output.content_length() {
+            let size = u64::try_from(n).context("negative source content length")?;
+            if size > limit {
+                return Err(SourceTooLarge { size, limit }.into());
+            }
         }
         let temp_path = self
             .config
@@ -366,8 +387,8 @@ impl Storage {
                 size = size
                     .checked_add(chunk.len() as u64)
                     .context("source size overflow")?;
-                if size > self.config.max_source_bytes {
-                    anyhow::bail!("source exceeds configured byte limit");
+                if size > limit {
+                    return Err(SourceTooLarge { size, limit }.into());
                 }
                 file.write_all(&chunk).await?;
             }
