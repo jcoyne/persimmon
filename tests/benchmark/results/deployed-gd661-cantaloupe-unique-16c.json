@@ -1,0 +1,40 @@
+{
+  "connections": 16,
+  "docker_stats": {},
+  "docker_stats_errors": [],
+  "elapsed_seconds": 33.85,
+  "error_samples": [],
+  "errors": 0,
+  "instances": 2,
+  "latency_ms": {
+    "max": 8364.0,
+    "p50": 6117.08,
+    "p95": 8254.33,
+    "p99": 8364.0
+  },
+  "metrics": [
+    {
+      "average_concurrent_renders": null,
+      "delta": {},
+      "instance": "sul-imageserver-stage-a.stanford.edu",
+      "mean_render_seconds": null,
+      "source_cache_bytes": null
+    },
+    {
+      "average_concurrent_renders": null,
+      "delta": {},
+      "instance": "sul-imageserver-stage-b.stanford.edu",
+      "mean_render_seconds": null,
+      "source_cache_bytes": null
+    }
+  ],
+  "metrics_collected": false,
+  "peak_rss_kib_by_pid": {},
+  "requests": 78,
+  "requests_per_second": 2.3,
+  "sample_path": "/iiif/3/gd%2F661%2Ftn%2F4082%2Fgd661tn4082%2Fcontent%2F3a2ef26aa6b7b7ab3accf9db52e8a7e0/0,0,1024,1024/1024,/0/gray.jpg",
+  "successes": 78,
+  "tile_urls_per_instance": 494,
+  "unique": true,
+  "warm": false
+}

@@ -1,0 +1,40 @@
+{
+  "tiles_total": 494,
+  "format": "jpg",
+  "quality": "default",
+  "scale_factors": [
+    1
+  ],
+  "connections": 32,
+  "size_mode": "h",
+  "urls": [
+    "https://sul-imageserver-stage-a.stanford.edu/iiif/3",
+    "https://sul-imageserver-stage-b.stanford.edu/iiif/3"
+  ],
+  "sample_path": "/iiif/3/gd%2F661%2Ftn%2F4082%2Fgd661tn4082%2Fcontent%2F3a2ef26aa6b7b7ab3accf9db52e8a7e0/0,0,1024,1024/,1024/0/default.jpg",
+  "elapsed_seconds": 37.42,
+  "successes": 96,
+  "errors": 0,
+  "error_samples": [],
+  "requests_per_second": 2.57,
+  "latency_ms": {
+    "p50": 12041.96,
+    "p95": 13032.1,
+    "p99": 13579.75
+  },
+  "max_ms": 13579.7,
+  "metrics": [
+    {
+      "instance": "sul-imageserver-stage-a.stanford.edu",
+      "delta": {},
+      "mean_render_s": null,
+      "avg_concurrent_renders": 0.0
+    },
+    {
+      "instance": "sul-imageserver-stage-b.stanford.edu",
+      "delta": {},
+      "mean_render_s": null,
+      "avg_concurrent_renders": 0.0
+    }
+  ]
+}
