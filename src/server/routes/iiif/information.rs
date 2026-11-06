@@ -208,8 +208,8 @@ pub(super) async fn serve(
     if let Some(response) = cached_information(state, &key, media).await? {
         return Ok(response);
     }
-    let source = source::fetch(state, identifier, &generation).await?;
-    let ((width, height, _), _) = source::probe(&source.path).await?;
+    // Only the header is needed, so avoid downloading what may be a multi-gigabyte source.
+    let (width, height, _) = source::dimensions(state, identifier, &generation).await?;
     let bytes = Bytes::from(
         serde_json::to_vec(&info_document(&state.config, identifier, width, height))
             .expect("serialize JSON"),

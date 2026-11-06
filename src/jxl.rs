@@ -15,11 +15,27 @@ pub fn is_jxl(path: &Path) -> anyhow::Result<bool> {
     File::open(path)?
         .take(CONTAINER_SIGNATURE.len() as u64)
         .read_to_end(&mut header)?;
-    Ok(header.starts_with(CODESTREAM_SIGNATURE) || header.starts_with(CONTAINER_SIGNATURE))
+    Ok(has_signature(&header))
 }
 
 fn header_error(e: Box<dyn std::error::Error + Send + Sync>) -> anyhow::Error {
     anyhow::anyhow!("read JPEG XL header: {e}")
+}
+
+/// Report whether leading bytes start with a JPEG XL codestream or container signature.
+pub fn has_signature(prefix: &[u8]) -> bool {
+    prefix.starts_with(CODESTREAM_SIGNATURE) || prefix.starts_with(CONTAINER_SIGNATURE)
+}
+
+/// Read the same metadata as [`metadata`] from the leading bytes of a source.
+/// Returns `None` when the header continues beyond `prefix`.
+pub fn metadata_from_prefix(prefix: &[u8]) -> anyhow::Result<Option<(u32, u32, u16)>> {
+    let mut uninit = JxlImage::builder().build_uninit();
+    uninit.feed_bytes(prefix).map_err(header_error)?;
+    match uninit.try_init().map_err(header_error)? {
+        InitializeResult::NeedMoreData(_) => Ok(None),
+        InitializeResult::Initialized(image) => dimensions(&image).map(Some),
+    }
 }
 
 /// Read width, height, and color channel count from the JPEG XL header,
@@ -39,6 +55,10 @@ pub fn metadata(path: &Path) -> anyhow::Result<(u32, u32, u16)> {
             InitializeResult::Initialized(image) => break image,
         }
     };
+    dimensions(&image)
+}
+
+fn dimensions(image: &JxlImage) -> anyhow::Result<(u32, u32, u16)> {
     let (width, height) = (image.width(), image.height());
     if width == 0 || height == 0 {
         anyhow::bail!("zero JPEG XL dimensions");
@@ -113,6 +133,10 @@ mod tests {
         let path = write_jxl(dir.path(), source.as_raw(), ColorSpace::RGB);
         assert!(is_jxl(&path).unwrap());
         assert_eq!(metadata(&path).unwrap(), (40, 30, 3));
+        let data = std::fs::read(&path).unwrap();
+        assert!(has_signature(&data));
+        assert_eq!(metadata_from_prefix(&data).unwrap(), Some((40, 30, 3)));
+        assert_eq!(metadata_from_prefix(&data[..2]).unwrap(), None);
         let region = Rect {
             x: 5,
             y: 7,

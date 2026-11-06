@@ -134,6 +134,20 @@ fn evict_local(local: &mut LocalState, limit: u64, metrics: &Metrics) {
     }
 }
 
+async fn clear_local_cache_dir(dir: &std::path::Path) -> std::io::Result<()> {
+    let mut entries = tokio::fs::read_dir(dir).await?;
+    while let Some(entry) = entries.next_entry().await? {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if entry.file_type().await?.is_file()
+            && (name.ends_with(".jp2") || name.ends_with(".tmp") || name.starts_with("render-"))
+        {
+            tokio::fs::remove_file(entry.path()).await?;
+        }
+    }
+    Ok(())
+}
+
 pub struct Storage {
     pub s3: Client,
     pub config: Arc<Config>,
@@ -148,16 +162,7 @@ impl Storage {
         tokio::fs::create_dir_all(&config.local_cache_dir).await?;
         // Old files have no in-memory access record. Start each server
         // process with a clean local cache for trustworthy accounting.
-        let mut dir = tokio::fs::read_dir(&config.local_cache_dir).await?;
-        while let Some(entry) = dir.next_entry().await? {
-            let name = entry.file_name();
-            let name = name.to_string_lossy();
-            if entry.file_type().await?.is_file()
-                && (name.ends_with(".jp2") || name.ends_with(".tmp") || name.starts_with("render-"))
-            {
-                tokio::fs::remove_file(entry.path()).await?;
-            }
-        }
+        clear_local_cache_dir(&config.local_cache_dir).await?;
         Ok(Self {
             s3,
             metrics: Arc::new(Metrics::default()),
@@ -166,6 +171,12 @@ impl Storage {
             local: Arc::new(StdMutex::new(LocalState::default())),
             source_locks: (0..256).map(|_| Mutex::new(())).collect(),
         })
+    }
+
+    /// Deletes the downloaded sources once the server has stopped serving. A stopped
+    /// container kept for rollback would otherwise hold them on the host's disk.
+    pub async fn clear_local_cache(&self) -> std::io::Result<()> {
+        clear_local_cache_dir(&self.config.local_cache_dir).await
     }
 
     fn marker_key(&self, identifier: &str) -> String {
@@ -320,6 +331,56 @@ impl Storage {
             }
             Err(e) => Err(e.into()),
         }
+    }
+
+    /// Fetches up to the first `len` bytes of a source with a ranged GET and
+    /// returns them with the object's total size, without downloading the rest.
+    pub async fn source_prefix(&self, identifier: &str, len: u64) -> anyhow::Result<(Bytes, u64)> {
+        Metrics::increment(&self.metrics.s3_requests);
+        let output = match self
+            .s3
+            .get_object()
+            .bucket(&self.config.source_bucket)
+            .key(identifier)
+            .range(format!("bytes=0-{}", len.saturating_sub(1)))
+            .send()
+            .await
+        {
+            Ok(output) => output,
+            Err(e) if e.as_service_error().and_then(|e| e.code()) == Some("NoSuchKey") => {
+                return Err(SourceNotFound.into());
+            }
+            // S3 cannot satisfy any byte range of an empty object.
+            Err(e) if e.as_service_error().and_then(|e| e.code()) == Some("InvalidRange") => {
+                return Ok((Bytes::new(), 0));
+            }
+            Err(e) => {
+                return Err(e).with_context(|| format!("source image unavailable: {identifier}"));
+            }
+        };
+        // A partial response reports the full size after the slash; a server that
+        // ignores the range returns the whole (small) object instead.
+        let total = match output.content_range().and_then(|r| r.rsplit_once('/')) {
+            Some((_, total)) => total
+                .parse::<u64>()
+                .with_context(|| format!("unexpected Content-Range for {identifier}"))?,
+            None => u64::try_from(output.content_length().unwrap_or(0))
+                .context("negative source content length")?,
+        };
+        let limit = self.config.max_source_bytes;
+        if total > limit {
+            return Err(SourceTooLarge { size: total, limit }.into());
+        }
+        let mut body = output.body;
+        let mut prefix = Vec::new();
+        while let Some(chunk) = body.next().await {
+            prefix.extend_from_slice(&chunk?);
+            if prefix.len() as u64 >= len {
+                prefix.truncate(usize::try_from(len).unwrap_or(usize::MAX));
+                break;
+            }
+        }
+        Ok((Bytes::from(prefix), total))
     }
 
     pub async fn source_path(

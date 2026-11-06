@@ -61,6 +61,41 @@ pub(super) async fn probe(path: &Path) -> Step<((u32, u32, u16), bool)> {
     }
 }
 
+/// How much of a source to read when looking for its header. Image headers sit at
+/// the start of the file, ahead of any large metadata or codestream boxes.
+const HEADER_PREFIX_BYTES: u64 = 64 * 1024;
+
+/// Reads the source's width, height and component count from a ranged read of its
+/// first bytes, downloading the whole source only when the header is not there.
+pub(super) async fn dimensions(
+    state: &AppState,
+    identifier: &str,
+    generation: &str,
+) -> Step<(u32, u32, u16)> {
+    let (prefix, total) = state
+        .storage
+        .source_prefix(identifier, HEADER_PREFIX_BYTES)
+        .await
+        .map_err(|e| error_response(fetch_error_status(&e), e))?;
+    let parsed = tokio::task::spawn_blocking(move || {
+        if jxl::has_signature(&prefix) {
+            jxl::metadata_from_prefix(&prefix)
+        } else {
+            jp2::metadata_from_prefix(&prefix, total)
+        }
+    })
+    .await;
+    match parsed {
+        Ok(Ok(Some(dimensions))) => Ok(dimensions),
+        Ok(Ok(None)) => {
+            let source = fetch(state, identifier, generation).await?;
+            Ok(probe(&source.path).await?.0)
+        }
+        Ok(Err(e)) => Err(error_response(StatusCode::INTERNAL_SERVER_ERROR, e)),
+        Err(e) => Err(error_response(StatusCode::INTERNAL_SERVER_ERROR, e)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

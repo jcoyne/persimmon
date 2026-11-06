@@ -24,7 +24,7 @@ The AWS SDK default credential chain supplies S3 credentials and region. An inst
 | `PERSIMMON_CACHE_PREFIX` | `persimmon/` | S3 namespace for derivatives and purge markers. |
 | `PERSIMMON_S3_ENDPOINT` | Unset | S3-compatible endpoint, including the release Weka service. Forces path-style requests. |
 | `PERSIMMON_LOCAL_CACHE_DIR` | `/var/cache/persimmon` | Per-instance source cache directory. |
-| `PERSIMMON_LOCAL_CACHE_BYTES` | `2000000000` | Local source cache target in bytes. Set to `0` to keep sources only while requests use them. |
+| `PERSIMMON_LOCAL_CACHE_BYTES` | `2000000000` | Local source cache target in bytes. A source larger than this is deleted as soon as no request is using it, so set it above your largest source. Set to `0` to keep sources only while requests use them. The cache is emptied when the server starts and after it stops gracefully. |
 | `PERSIMMON_DERIVATIVE_CACHE_BYTES` | `10000000000` | Shared S3 derivative cache target in bytes. |
 | `PERSIMMON_PRUNE_INTERVAL_SECONDS` | `3600` | Seconds between passes when running `prune-cache-loop`. |
 | `PERSIMMON_MAX_SOURCE_BYTES` | `250000000` | Largest accepted source file in bytes. Requests for a larger source fail with `500`, and the error message gives the source size. |
