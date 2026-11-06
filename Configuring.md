@@ -87,7 +87,7 @@ Structured access logs at the `info` level include request method, URI, response
 
 ## Error reporting
 
-Builds with the optional `honeybadger` Cargo feature report server errors (`5xx` responses other than `501`) and panics to [Honeybadger](https://www.honeybadger.io). Reporting starts only when `HONEYBADGER_API_KEY` is set, so the same binary also runs without it. Notices are sent from a background thread and never delay a response.
+Builds with the optional `honeybadger` Cargo feature report server errors (`5xx` responses other than `501`) and panics to [Honeybadger](https://www.honeybadger.io). Reporting starts only when `HONEYBADGER_API_KEY` is set, so the same binary also runs without it. Each notice includes the request method, path, and IIIF identifier in its context. Notices are sent from a background thread and never delay a response.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |

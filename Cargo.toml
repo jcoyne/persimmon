@@ -38,7 +38,7 @@ zune-jpegxl = "0.5"
 
 [features]
 # Reports server errors and panics to Honeybadger when HONEYBADGER_API_KEY is set.
-honeybadger = ["dep:honeybadger"]
+honeybadger = ["dep:honeybadger", "honeybadger/tokio"]
 
 [dev-dependencies]
 tempfile = "3"

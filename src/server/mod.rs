@@ -87,7 +87,20 @@ async fn log_request(
     let identifier = requested_identifier(uri.path(), &config.route_prefix);
     let started = Instant::now();
     let span = tracing::info_span!("request", %method, %uri, ?version);
-    let response = next.run(request).instrument(span.clone()).await;
+    let response = next.run(request).instrument(span.clone());
+    // Errors reported to Honeybadger while handling this request carry its method and path.
+    #[cfg(feature = "honeybadger")]
+    let response = honeybadger::scope(async {
+        honeybadger::context([
+            ("method", serde_json::json!(method.as_str())),
+            ("path", serde_json::json!(uri.path())),
+        ]);
+        if let Some(identifier) = &identifier {
+            honeybadger::context([("identifier", serde_json::json!(identifier))]);
+        }
+        response.await
+    });
+    let response = response.await;
     let status = response.status().as_u16();
     let latency = started.elapsed();
     if let Some(identifier) = identifier {
