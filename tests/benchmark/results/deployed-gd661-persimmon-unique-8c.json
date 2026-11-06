@@ -1,0 +1,66 @@
+{
+  "tiles_total": 494,
+  "format": "jpg",
+  "quality": "color",
+  "scale_factors": [
+    1
+  ],
+  "connections": 8,
+  "elapsed_seconds": 25.59,
+  "successes": 341,
+  "errors": 0,
+  "error_samples": [],
+  "requests_per_second": 13.33,
+  "latency_ms": {
+    "p50": 589.89,
+    "p95": 705.56,
+    "p99": 769.05
+  },
+  "max_ms": 1230.1,
+  "metrics": [
+    {
+      "instance": "sul-imageserver-test-a.stanford.edu",
+      "delta": {
+        "persimmon_s3_requests_total": 868.0,
+        "persimmon_source_cache_hits_total": 172.0,
+        "persimmon_source_cache_misses_total": 0.0,
+        "persimmon_source_downloads_total": 0.0,
+        "persimmon_source_download_bytes_total": 0.0,
+        "persimmon_source_evictions_total": 0.0,
+        "persimmon_derivative_cache_hits_total": 0.0,
+        "persimmon_derivative_cache_misses_total": 344.0,
+        "persimmon_derivative_writes_total": 172.0,
+        "persimmon_renders_total": 172.0,
+        "persimmon_jxl_renders_total": 0.0,
+        "persimmon_j2k_renders_total": 172.0,
+        "persimmon_render_duration_seconds_total": 75.182,
+        "persimmon_purges_total": 0.0,
+        "persimmon_errors_total": 0.0
+      },
+      "mean_render_s": 0.437,
+      "avg_concurrent_renders": 2.94
+    },
+    {
+      "instance": "sul-imageserver-test-b.stanford.edu",
+      "delta": {
+        "persimmon_s3_requests_total": 853.0,
+        "persimmon_source_cache_hits_total": 169.0,
+        "persimmon_source_cache_misses_total": 0.0,
+        "persimmon_source_downloads_total": 0.0,
+        "persimmon_source_download_bytes_total": 0.0,
+        "persimmon_source_evictions_total": 0.0,
+        "persimmon_derivative_cache_hits_total": 0.0,
+        "persimmon_derivative_cache_misses_total": 338.0,
+        "persimmon_derivative_writes_total": 169.0,
+        "persimmon_renders_total": 169.0,
+        "persimmon_jxl_renders_total": 0.0,
+        "persimmon_j2k_renders_total": 169.0,
+        "persimmon_render_duration_seconds_total": 74.46,
+        "persimmon_purges_total": 0.0,
+        "persimmon_errors_total": 0.0
+      },
+      "mean_render_s": 0.441,
+      "avg_concurrent_renders": 2.91
+    }
+  ]
+}

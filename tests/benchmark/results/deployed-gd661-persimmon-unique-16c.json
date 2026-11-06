@@ -1,0 +1,72 @@
+{
+  "connections": 16,
+  "docker_stats": {},
+  "docker_stats_errors": [],
+  "elapsed_seconds": 27.59,
+  "error_samples": [],
+  "errors": 0,
+  "instances": 2,
+  "latency_ms": {
+    "max": 1797.75,
+    "p50": 875.9,
+    "p95": 1129.1,
+    "p99": 1473.13
+  },
+  "metrics": [
+    {
+      "average_concurrent_renders": 6.16,
+      "delta": {
+        "persimmon_derivative_cache_hits_total": 0.0,
+        "persimmon_derivative_cache_misses_total": 494.0,
+        "persimmon_derivative_writes_total": 247.0,
+        "persimmon_errors_total": 0.0,
+        "persimmon_j2k_renders_total": 247.0,
+        "persimmon_jxl_renders_total": 0.0,
+        "persimmon_purges_total": 0.0,
+        "persimmon_render_duration_seconds_total": 170.036807,
+        "persimmon_renders_total": 247.0,
+        "persimmon_s3_requests_total": 1243.0,
+        "persimmon_source_cache_hits_total": 247.0,
+        "persimmon_source_cache_misses_total": 0.0,
+        "persimmon_source_download_bytes_total": 0.0,
+        "persimmon_source_downloads_total": 0.0,
+        "persimmon_source_evictions_total": 0.0
+      },
+      "instance": "sul-imageserver-test-a.stanford.edu",
+      "mean_render_seconds": 0.688,
+      "source_cache_bytes": 294823985.0
+    },
+    {
+      "average_concurrent_renders": 6.23,
+      "delta": {
+        "persimmon_derivative_cache_hits_total": 0.0,
+        "persimmon_derivative_cache_misses_total": 494.0,
+        "persimmon_derivative_writes_total": 247.0,
+        "persimmon_errors_total": 0.0,
+        "persimmon_j2k_renders_total": 247.0,
+        "persimmon_jxl_renders_total": 0.0,
+        "persimmon_purges_total": 0.0,
+        "persimmon_render_duration_seconds_total": 171.800592,
+        "persimmon_renders_total": 247.0,
+        "persimmon_s3_requests_total": 1243.0,
+        "persimmon_source_cache_hits_total": 247.0,
+        "persimmon_source_cache_misses_total": 0.0,
+        "persimmon_source_download_bytes_total": 0.0,
+        "persimmon_source_downloads_total": 0.0,
+        "persimmon_source_evictions_total": 0.0
+      },
+      "instance": "sul-imageserver-test-b.stanford.edu",
+      "mean_render_seconds": 0.696,
+      "source_cache_bytes": 322166950.0
+    }
+  ],
+  "metrics_collected": true,
+  "peak_rss_kib_by_pid": {},
+  "requests": 494,
+  "requests_per_second": 17.9,
+  "sample_path": "/v3/gd%2F661%2Ftn%2F4082%2Fgd661tn4082%2Fcontent%2F3a2ef26aa6b7b7ab3accf9db52e8a7e0/0,0,1024,1024/,1024/0/gray.jpg",
+  "successes": 494,
+  "tile_urls_per_instance": 494,
+  "unique": true,
+  "warm": false
+}
