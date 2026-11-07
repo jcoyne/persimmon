@@ -52,6 +52,19 @@ impl std::fmt::Display for SourceTooLarge {
 
 impl std::error::Error for SourceTooLarge {}
 
+/// The local source cache has no room for this source because requests are using
+/// the sources it already holds. Retrying once they finish will help.
+#[derive(Debug)]
+pub struct LocalCacheFull;
+
+impl std::fmt::Display for LocalCacheFull {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("local source cache is full of sources in use")
+    }
+}
+
+impl std::error::Error for LocalCacheFull {}
+
 pub fn hash(value: &str) -> String {
     hex::encode(Sha256::digest(value.as_bytes()))
 }
@@ -104,11 +117,40 @@ impl Drop for SourceLease {
 #[derive(Default)]
 struct LocalState {
     entries: HashMap<String, LocalEntry>,
+    /// Bytes of the files in `entries`.
+    bytes: u64,
+    /// Bytes set aside for downloads in progress, so `bytes + reserved` never
+    /// exceeds the local cache limit.
+    reserved: u64,
+}
+
+/// Disk space set aside for one download, returned when dropped unless the
+/// download settles it into a cache entry.
+struct Reservation {
+    local: Arc<StdMutex<LocalState>>,
     bytes: u64,
 }
 
+impl Reservation {
+    fn settle(&mut self, local: &mut LocalState) {
+        local.reserved -= self.bytes;
+        self.bytes = 0;
+    }
+}
+
+impl Drop for Reservation {
+    fn drop(&mut self) {
+        if self.bytes > 0 {
+            let mut local = self.local.lock().unwrap_or_else(|e| e.into_inner());
+            local.reserved -= self.bytes;
+        }
+    }
+}
+
+/// Evicts unused sources, least recently used first, until cached and reserved
+/// bytes together fit within `limit`, or only sources in use remain.
 fn evict_local(local: &mut LocalState, limit: u64, metrics: &Metrics) {
-    while local.bytes > limit {
+    while local.bytes + local.reserved > limit {
         let victim = local
             .entries
             .iter()
@@ -132,6 +174,27 @@ fn evict_local(local: &mut LocalState, limit: u64, metrics: &Metrics) {
             .source_cache_bytes
             .store(local.bytes, Ordering::Relaxed);
     }
+}
+
+/// Sets aside `bytes` of local cache space, evicting unused sources to make room.
+/// Fails when sources in use and other downloads already fill the limit.
+fn reserve_local(
+    local: &Arc<StdMutex<LocalState>>,
+    bytes: u64,
+    limit: u64,
+    metrics: &Metrics,
+) -> anyhow::Result<Reservation> {
+    let mut state = local.lock().unwrap_or_else(|e| e.into_inner());
+    evict_local(&mut state, limit.saturating_sub(bytes), metrics);
+    if state.bytes + state.reserved + bytes > limit {
+        Metrics::increment(&metrics.source_cache_rejections);
+        return Err(LocalCacheFull.into());
+    }
+    state.reserved += bytes;
+    Ok(Reservation {
+        local: local.clone(),
+        bytes,
+    })
 }
 
 async fn clear_local_cache_dir(dir: &std::path::Path) -> std::io::Result<()> {
@@ -427,13 +490,30 @@ impl Storage {
             }
             Err(e) => return Err(e).with_context(|| format!("source image unavailable: {key}")),
         };
-        let limit = self.config.max_source_bytes;
-        if let Some(n) = output.content_length() {
-            let size = u64::try_from(n).context("negative source content length")?;
-            if size > limit {
-                return Err(SourceTooLarge { size, limit }.into());
+        // A source that could never fit in the local cache is as unservable as one
+        // over the source limit. Configuration keeps the two consistent.
+        let limit = self
+            .config
+            .max_source_bytes
+            .min(self.config.local_cache_limit);
+        let expected = match output.content_length() {
+            Some(n) => {
+                let size = u64::try_from(n).context("negative source content length")?;
+                if size > limit {
+                    return Err(SourceTooLarge { size, limit }.into());
+                }
+                Some(size)
             }
-        }
+            None => None,
+        };
+        // Reserve the disk space before writing anything, so sources held by
+        // requests waiting to render cannot push the cache past its limit.
+        let mut reservation = reserve_local(
+            &self.local,
+            expected.unwrap_or(limit),
+            self.config.local_cache_limit,
+            &self.metrics,
+        )?;
         let temp_path = self
             .config
             .local_cache_dir
@@ -451,6 +531,9 @@ impl Storage {
                 if size > limit {
                     return Err(SourceTooLarge { size, limit }.into());
                 }
+                if size > reservation.bytes {
+                    anyhow::bail!("source body is longer than its Content-Length");
+                }
                 file.write_all(&chunk).await?;
             }
             file.flush().await?;
@@ -464,6 +547,7 @@ impl Storage {
             .source_download_bytes
             .fetch_add(size, Ordering::Relaxed);
         let mut local = self.local.lock().unwrap_or_else(|e| e.into_inner());
+        reservation.settle(&mut local);
         local.bytes += size;
         self.metrics
             .source_cache_bytes
@@ -554,4 +638,58 @@ pub async fn prune_derivatives(
         deleted += 1;
     }
     Ok((bytes, deleted))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn insert(
+        local: &Arc<StdMutex<LocalState>>,
+        dir: &std::path::Path,
+        key: &str,
+        size: u64,
+        active: usize,
+    ) -> PathBuf {
+        let path = dir.join(format!("{key}.jp2"));
+        std::fs::write(&path, vec![0; size as usize]).unwrap();
+        let mut state = local.lock().unwrap();
+        state.bytes += size;
+        state.entries.insert(
+            key.into(),
+            LocalEntry {
+                path: path.clone(),
+                size,
+                accessed: Instant::now(),
+                active: Arc::new(AtomicUsize::new(active)),
+            },
+        );
+        path
+    }
+
+    #[test]
+    fn reservation_evicts_unused_sources_and_refuses_when_sources_in_use_fill_the_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let metrics = Metrics::default();
+        let local = Arc::new(StdMutex::new(LocalState::default()));
+        let in_use = insert(&local, dir.path(), "in-use", 10, 1);
+        let idle = insert(&local, dir.path(), "idle", 8, 0);
+
+        // Evicting the idle source makes room.
+        let reservation = reserve_local(&local, 8, 20, &metrics).unwrap();
+        assert!(!idle.exists());
+        assert!(in_use.exists());
+        assert_eq!(local.lock().unwrap().reserved, 8);
+
+        // The source in use and the outstanding reservation leave no room.
+        let full = reserve_local(&local, 8, 20, &metrics).err().unwrap();
+        assert!(full.is::<LocalCacheFull>());
+        assert_eq!(metrics.source_cache_rejections.load(Ordering::Relaxed), 1);
+
+        // An abandoned download returns its space.
+        drop(reservation);
+        assert_eq!(local.lock().unwrap().reserved, 0);
+        let _reservation = reserve_local(&local, 8, 20, &metrics).unwrap();
+        assert_eq!(metrics.source_evictions.load(Ordering::Relaxed), 1);
+    }
 }

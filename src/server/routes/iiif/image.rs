@@ -64,6 +64,9 @@ pub(super) async fn serve(
         .map_err(|e| error_response(StatusCode::BAD_REQUEST, e))?;
     let temp_permit = reserve_render_memory(state, region, size, components, is_jxl).await?;
     let data = render(state, &source.path, region, size, request, is_jxl).await?;
+    // Release the source before the cache write, so it can be evicted while
+    // S3 and the client receive the image.
+    drop(source);
     // Keep the reservation while S3 and the HTTP response still hold
     // references to the encoded image, including slow clients.
     let bytes = Bytes::from_owner(RenderedBytes {

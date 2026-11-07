@@ -8,7 +8,11 @@ use aws_sdk_s3::{
     config::{BehaviorVersion, Credentials, Region},
 };
 use bytes::Bytes;
-use persimmon::{config::Config, pipeline::EncodeSettings, storage::Storage};
+use persimmon::{
+    config::Config,
+    pipeline::EncodeSettings,
+    storage::{LocalCacheFull, SourceTooLarge, Storage},
+};
 
 fn test_config(
     source_bucket: String,
@@ -177,10 +181,21 @@ async fn concurrent_source_reuse_and_cross_instance_purge() {
         .send()
         .await
         .unwrap();
-    let newest_source = first.source_path("d", "0").await.unwrap();
-    assert_eq!(first.metrics.source_cache_bytes.load(Ordering::Relaxed), 26);
+    // Both cached sources are in use, so a third cannot be admitted past the limit.
+    let full = first.source_path("d", "0").await.err().unwrap();
+    assert!(full.is::<LocalCacheFull>());
+    assert_eq!(first.metrics.source_cache_bytes.load(Ordering::Relaxed), 18);
+    assert_eq!(
+        first
+            .metrics
+            .source_cache_rejections
+            .load(Ordering::Relaxed),
+        1
+    );
     let third_path = third_source.path.clone();
     drop(third_source);
+    assert!(third_path.exists());
+    let newest_source = first.source_path("d", "0").await.unwrap();
     assert_eq!(first.metrics.source_cache_bytes.load(Ordering::Relaxed), 18);
     assert_eq!(first.metrics.source_evictions.load(Ordering::Relaxed), 2);
     assert!(!third_path.exists());
@@ -212,8 +227,7 @@ async fn concurrent_source_reuse_and_cross_instance_purge() {
     assert!(remaining_bytes <= 5);
     assert_eq!(deleted, 1);
 
-    // A single oversized source may be used while leased, but must not
-    // remain cached after its final request finishes.
+    // A source that cannot fit in the local cache is refused without writing it.
     let oversized_dir = tempfile::tempdir().unwrap();
     let mut oversized_config = (*test_config(
         source_bucket,
@@ -225,21 +239,17 @@ async fn concurrent_source_reuse_and_cross_instance_purge() {
     let oversized = Storage::new(client, Arc::new(oversized_config))
         .await
         .unwrap();
-    let lease = oversized.source_path("c", "0").await.unwrap();
-    let path = lease.path.clone();
-    assert!(path.exists());
-    assert_eq!(
-        oversized.metrics.source_cache_bytes.load(Ordering::Relaxed),
-        8
-    );
-    drop(lease);
-    assert!(!path.exists());
+    let error = oversized.source_path("c", "0").await.err().unwrap();
+    let too_large = error.downcast_ref::<SourceTooLarge>().unwrap();
+    assert_eq!((too_large.size, too_large.limit), (8, 5));
     assert_eq!(
         oversized.metrics.source_cache_bytes.load(Ordering::Relaxed),
         0
     );
-    assert_eq!(
-        oversized.metrics.source_evictions.load(Ordering::Relaxed),
-        1
+    assert!(
+        std::fs::read_dir(oversized_dir.path())
+            .unwrap()
+            .next()
+            .is_none()
     );
 }
