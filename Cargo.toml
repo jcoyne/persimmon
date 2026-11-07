@@ -9,7 +9,7 @@ license = "Apache-2.0"
 [dependencies]
 anyhow = "1"
 aws-config = "1"
-aws-sdk-s3 = "1"
+aws-sdk-s3 = { version = "1", default-features = false, features = ["default-https-client", "http-1x", "rt-tokio", "sigv4a"] }
 axum = { version = "0.8", features = ["json"] }
 axum-server = { version = "0.8", features = ["tls-rustls"] }
 base64 = "0.23"
