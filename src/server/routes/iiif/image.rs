@@ -1,4 +1,9 @@
-use std::{path::Path, sync::Arc, time::Instant};
+use std::{
+    future::Future,
+    path::Path,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use axum::{
     body::Body,
@@ -6,7 +11,7 @@ use axum::{
     response::Response,
 };
 use bytes::Bytes;
-use tokio::sync::OwnedSemaphorePermit;
+use tokio::sync::{AcquireError, OwnedSemaphorePermit};
 use tracing::warn;
 
 use crate::{
@@ -15,7 +20,7 @@ use crate::{
     metrics::Metrics,
     pipeline,
     server::{
-        AppState,
+        AppState, overloaded_response,
         response::{error_response, text_response},
     },
     storage::{Derivative, hash},
@@ -62,8 +67,13 @@ pub(super) async fn serve(
         .map_err(|e| error_response(StatusCode::BAD_REQUEST, e))?;
     let size = iiif::output_size(&request.size, region, state.config.max_output_pixels)
         .map_err(|e| error_response(StatusCode::BAD_REQUEST, e))?;
-    let temp_permit = reserve_render_memory(state, region, size, components, is_jxl).await?;
-    let data = render(state, &source.path, region, size, request, is_jxl).await?;
+    // One deadline covers both queues. A request holding a source must not wait
+    // indefinitely behind renders that are slow or stuck.
+    let deadline =
+        tokio::time::Instant::now() + Duration::from_secs(state.config.render_wait_seconds);
+    let temp_permit =
+        reserve_render_memory(state, region, size, components, is_jxl, deadline).await?;
+    let data = render(state, &source.path, region, size, request, is_jxl, deadline).await?;
     // Release the source before the cache write, so it can be evicted while
     // S3 and the client receive the image.
     drop(source);
@@ -97,6 +107,7 @@ async fn reserve_render_memory(
     size: (u32, u32),
     components: u16,
     is_jxl: bool,
+    deadline: tokio::time::Instant,
 ) -> Step<OwnedSemaphorePermit> {
     let needed = render_memory_mib(&state.config, region, size, components, is_jxl);
     let available = state.config.max_temp_bitmap_bytes / 1_048_576;
@@ -106,12 +117,25 @@ async fn reserve_render_memory(
             "temporary bitmap limit exceeded",
         ));
     }
-    state
-        .temp_bitmaps
-        .clone()
-        .acquire_many_owned(needed as u32)
-        .await
-        .map_err(|e| error_response(StatusCode::SERVICE_UNAVAILABLE, e))
+    let permits = state.temp_bitmaps.clone().acquire_many_owned(needed as u32);
+    wait_for_render_permit(&state.storage.metrics, deadline, permits).await
+}
+
+/// Waits for a render permit until `deadline`, then reports the server as busy.
+async fn wait_for_render_permit<T>(
+    metrics: &Metrics,
+    deadline: tokio::time::Instant,
+    permit: impl Future<Output = Result<T, AcquireError>>,
+) -> Step<T> {
+    match tokio::time::timeout_at(deadline, permit).await {
+        Ok(Ok(permit)) => Ok(permit),
+        Ok(Err(e)) => Err(error_response(StatusCode::SERVICE_UNAVAILABLE, e)),
+        Err(_) => {
+            Metrics::increment(&metrics.render_wait_timeouts);
+            warn!("timed out waiting to render");
+            Err(overloaded_response())
+        }
+    }
 }
 
 /// Estimates the peak memory of one render, in whole MiB.
@@ -153,12 +177,10 @@ async fn render(
     size: (u32, u32),
     request: &ImageRequest,
     is_jxl: bool,
+    deadline: tokio::time::Instant,
 ) -> Step<Vec<u8>> {
-    let decode_permit = state
-        .decodes
-        .acquire()
-        .await
-        .map_err(|e| error_response(StatusCode::SERVICE_UNAVAILABLE, e))?;
+    let decode_permit =
+        wait_for_render_permit(&state.storage.metrics, deadline, state.decodes.acquire()).await?;
     let started = Instant::now();
     let rendered = if is_jxl {
         pipeline::render_jxl(
@@ -266,7 +288,37 @@ mod tests {
     use bytes::Bytes;
     use tokio::sync::Semaphore;
 
-    use super::{RenderedBytes, image_response};
+    use super::{Metrics, RenderedBytes, image_response, wait_for_render_permit};
+
+    #[tokio::test]
+    async fn render_permit_wait_gives_up_at_the_deadline_with_retry_after() {
+        let metrics = Metrics::default();
+        let busy = Semaphore::new(0);
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(10);
+        let response = wait_for_render_permit(&metrics, deadline, busy.acquire())
+            .await
+            .err()
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            axum::http::StatusCode::SERVICE_UNAVAILABLE
+        );
+        assert_eq!(response.headers()["retry-after"], "1");
+        assert_eq!(
+            metrics
+                .render_wait_timeouts
+                .load(std::sync::atomic::Ordering::Relaxed),
+            1
+        );
+
+        let free = Semaphore::new(1);
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(10);
+        assert!(
+            wait_for_render_permit(&metrics, deadline, free.acquire())
+                .await
+                .is_ok()
+        );
+    }
 
     #[tokio::test]
     async fn render_memory_reservation_lives_as_long_as_response_bytes() {

@@ -17,6 +17,7 @@ pub struct Metrics {
     pub jxl_renders: AtomicU64,
     pub j2k_renders: AtomicU64,
     pub render_duration_ns: AtomicU64,
+    pub render_wait_timeouts: AtomicU64,
     pub purges: AtomicU64,
     pub errors: AtomicU64,
 }
@@ -60,6 +61,8 @@ impl Metrics {
                 "persimmon_j2k_renders_total {}\n",
                 "# TYPE persimmon_render_duration_seconds_total counter\n",
                 "persimmon_render_duration_seconds_total {:.9}\n",
+                "# TYPE persimmon_render_wait_timeouts_total counter\n",
+                "persimmon_render_wait_timeouts_total {}\n",
                 "# TYPE persimmon_purges_total counter\n",
                 "persimmon_purges_total {}\n",
                 "# TYPE persimmon_errors_total counter\n",
@@ -80,6 +83,7 @@ impl Metrics {
             read(&self.jxl_renders),
             read(&self.j2k_renders),
             read(&self.render_duration_ns) as f64 / 1_000_000_000.0,
+            read(&self.render_wait_timeouts),
             read(&self.purges),
             read(&self.errors),
         )

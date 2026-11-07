@@ -33,6 +33,7 @@ The AWS SDK default credential chain supplies S3 credentials and region. An inst
 | `PERSIMMON_MAX_DECODE_PIXELS` | `100000000` | Largest decoded region area, after discarding JP2 resolution levels, accepted by the JP2 and JPEG XL decoders. Must be at least the output pixel limit. |
 | `PERSIMMON_MAX_PARALLEL_DECODES` | `8` | Per-instance limit on concurrent decodes. Each decode uses one thread. |
 | `PERSIMMON_MAX_PARALLEL_DOWNLOADS` | `8` | Per-instance source download limit. |
+| `PERSIMMON_RENDER_WAIT_SECONDS` | `10` | Longest a request waits, in total, for render memory and a decode slot. A request still waiting then fails with `503` and `Retry-After: 1`, releasing its source. Counted by `persimmon_render_wait_timeouts_total`. |
 | `PERSIMMON_MAX_IN_FLIGHT_REQUESTS` | `64` | Per-instance limit on requests performing S3 or image work. Excess requests fail immediately with `503` and `Retry-After: 1`; liveness, metrics, and IIIF base redirects do not consume a slot. |
 | `PERSIMMON_MIN_SIZE` | `64` | Minimum advertised `sizes` dimension. |
 | `PERSIMMON_MIN_TILE_SIZE` | `1024` | Advertised tile width. |

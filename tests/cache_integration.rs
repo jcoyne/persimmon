@@ -39,6 +39,7 @@ fn test_config(
         max_parallel_decodes: 8,
         max_parallel_downloads: 8,
         max_in_flight_requests: 8,
+        render_wait_seconds: 10,
         min_size: 64,
         min_tile_size: 1024,
         encoding: EncodeSettings::default(),
