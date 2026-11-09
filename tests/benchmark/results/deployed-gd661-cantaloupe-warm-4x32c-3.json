@@ -1,0 +1,33 @@
+{
+  "connections": 32,
+  "docker_stats": {},
+  "docker_stats_errors": [],
+  "elapsed_seconds": 20.296,
+  "error_samples": [],
+  "errors": 0,
+  "instances": 2,
+  "latency_ms": {
+    "p50": 227.33,
+    "p95": 440.12,
+    "p99": 657.84
+  },
+  "metrics": [
+    {
+      "delta": {},
+      "instance": "sul-imageserver-stage-a.stanford.edu",
+      "source_cache_bytes": null
+    },
+    {
+      "delta": {},
+      "instance": "sul-imageserver-stage-b.stanford.edu",
+      "source_cache_bytes": null
+    }
+  ],
+  "metrics_collected": false,
+  "peak_rss_kib_by_pid": {},
+  "requests": 2593,
+  "requests_per_second": 127.76,
+  "successes": 2593,
+  "tile_urls_per_instance": 64,
+  "warm": false
+}
