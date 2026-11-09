@@ -1872,7 +1872,7 @@ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 [[package]]
 name = "j2k"
 version = "0.13.2"
-source = "git+https://github.com/frames-sg/j2k?rev=17efbb51c71cd50a7e1af0bb82ca9c5ba565075c#17efbb51c71cd50a7e1af0bb82ca9c5ba565075c"
+source = "git+https://github.com/frames-sg/j2k?rev=f1a5441ee0d61c9ddef121fa0f15dc7f4e05602f#f1a5441ee0d61c9ddef121fa0f15dc7f4e05602f"
 dependencies = [
  "j2k-core",
  "j2k-native",
@@ -1885,7 +1885,7 @@ dependencies = [
 [[package]]
 name = "j2k-codec-math"
 version = "0.13.2"
-source = "git+https://github.com/frames-sg/j2k?rev=17efbb51c71cd50a7e1af0bb82ca9c5ba565075c#17efbb51c71cd50a7e1af0bb82ca9c5ba565075c"
+source = "git+https://github.com/frames-sg/j2k?rev=f1a5441ee0d61c9ddef121fa0f15dc7f4e05602f#f1a5441ee0d61c9ddef121fa0f15dc7f4e05602f"
 dependencies = [
  "j2k-types",
 ]
@@ -1893,7 +1893,7 @@ dependencies = [
 [[package]]
 name = "j2k-core"
 version = "0.13.2"
-source = "git+https://github.com/frames-sg/j2k?rev=17efbb51c71cd50a7e1af0bb82ca9c5ba565075c#17efbb51c71cd50a7e1af0bb82ca9c5ba565075c"
+source = "git+https://github.com/frames-sg/j2k?rev=f1a5441ee0d61c9ddef121fa0f15dc7f4e05602f#f1a5441ee0d61c9ddef121fa0f15dc7f4e05602f"
 dependencies = [
  "libc",
  "thiserror",
@@ -1903,7 +1903,7 @@ dependencies = [
 [[package]]
 name = "j2k-native"
 version = "0.13.2"
-source = "git+https://github.com/frames-sg/j2k?rev=17efbb51c71cd50a7e1af0bb82ca9c5ba565075c#17efbb51c71cd50a7e1af0bb82ca9c5ba565075c"
+source = "git+https://github.com/frames-sg/j2k?rev=f1a5441ee0d61c9ddef121fa0f15dc7f4e05602f#f1a5441ee0d61c9ddef121fa0f15dc7f4e05602f"
 dependencies = [
  "bytemuck",
  "fearless_simd",
@@ -1917,12 +1917,12 @@ dependencies = [
 [[package]]
 name = "j2k-profile"
 version = "0.13.2"
-source = "git+https://github.com/frames-sg/j2k?rev=17efbb51c71cd50a7e1af0bb82ca9c5ba565075c#17efbb51c71cd50a7e1af0bb82ca9c5ba565075c"
+source = "git+https://github.com/frames-sg/j2k?rev=f1a5441ee0d61c9ddef121fa0f15dc7f4e05602f#f1a5441ee0d61c9ddef121fa0f15dc7f4e05602f"
 
 [[package]]
 name = "j2k-types"
 version = "0.13.2"
-source = "git+https://github.com/frames-sg/j2k?rev=17efbb51c71cd50a7e1af0bb82ca9c5ba565075c#17efbb51c71cd50a7e1af0bb82ca9c5ba565075c"
+source = "git+https://github.com/frames-sg/j2k?rev=f1a5441ee0d61c9ddef121fa0f15dc7f4e05602f#f1a5441ee0d61c9ddef121fa0f15dc7f4e05602f"
 
 [[package]]
 name = "jiff"

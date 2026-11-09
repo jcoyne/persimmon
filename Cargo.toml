@@ -21,7 +21,7 @@ honeybadger = { git = "https://github.com/honeybadger-io/honeybadger-rust", rev 
 http = "1"
 image = { version = "0.25", default-features = false, features = ["avif", "bmp", "jpeg", "png", "webp", "pnm"] }
 # Unreleased fixes from the main branch.
-j2k = { git = "https://github.com/frames-sg/j2k", rev = "17efbb51c71cd50a7e1af0bb82ca9c5ba565075c" }
+j2k = { git = "https://github.com/frames-sg/j2k", rev = "f1a5441ee0d61c9ddef121fa0f15dc7f4e05602f" }
 jxl-oxide = { version = "0.12", default-features = false }
 memmap2 = "0.9"
 serde = { version = "1", features = ["derive"] }
