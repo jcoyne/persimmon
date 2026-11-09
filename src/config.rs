@@ -23,6 +23,7 @@ pub struct Config {
     pub max_parallel_decodes: usize,
     pub max_parallel_downloads: usize,
     pub max_in_flight_requests: usize,
+    pub render_wait_seconds: u64,
     pub min_size: u32,
     pub min_tile_size: u32,
     pub encoding: EncodeSettings,
@@ -149,6 +150,7 @@ impl Config {
             max_parallel_decodes: value("PERSIMMON_MAX_PARALLEL_DECODES", 8)?,
             max_parallel_downloads: value("PERSIMMON_MAX_PARALLEL_DOWNLOADS", 8)?,
             max_in_flight_requests: value("PERSIMMON_MAX_IN_FLIGHT_REQUESTS", 64)?,
+            render_wait_seconds: value("PERSIMMON_RENDER_WAIT_SECONDS", 10)?,
             min_size: value("PERSIMMON_MIN_SIZE", 64)?,
             min_tile_size: value("PERSIMMON_MIN_TILE_SIZE", 1024)?,
             encoding: EncodeSettings {
@@ -164,12 +166,15 @@ impl Config {
         if config.max_output_pixels == 0
             || config.prune_interval_seconds == 0
             || config.max_source_bytes == 0
+            // The local cache is a hard limit; every accepted source must fit in it.
+            || config.local_cache_limit < config.max_source_bytes
             || config.max_temp_bitmap_bytes < 1_048_576
             || config.max_temp_bitmap_bytes / 1_048_576 > u64::from(u32::MAX)
             || config.max_decode_pixels < config.max_output_pixels
             || config.max_parallel_decodes == 0
             || config.max_parallel_downloads == 0
             || config.max_in_flight_requests == 0
+            || config.render_wait_seconds == 0
             || config.max_in_flight_requests > tokio::sync::Semaphore::MAX_PERMITS
             || config.min_size == 0
             || config.min_tile_size == 0

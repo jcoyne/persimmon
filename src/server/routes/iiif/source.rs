@@ -1,11 +1,18 @@
 use std::path::Path;
 
-use axum::http::StatusCode;
+use axum::{
+    http::{HeaderValue, StatusCode, header},
+    response::Response,
+};
+use tracing::warn;
 
 use crate::{
     jp2, jxl,
-    server::{AppState, response::error_response},
-    storage::{SourceLease, SourceNotFound, SourceTooLarge},
+    server::{
+        AppState,
+        response::{error_response, text_response},
+    },
+    storage::{LocalCacheFull, SourceLease, SourceNotFound, SourceTooLarge},
 };
 
 use super::Step;
@@ -28,7 +35,22 @@ pub(super) async fn fetch(
         .storage
         .source_path(identifier, generation)
         .await
-        .map_err(|e| error_response(fetch_error_status(&e), e))
+        .map_err(fetch_error_response)
+}
+
+fn fetch_error_response(error: anyhow::Error) -> Response {
+    if error.is::<LocalCacheFull>() {
+        // Capacity, like request admission: the sources in use free their space
+        // when their requests finish, so ask the client to retry rather than
+        // reporting a server fault.
+        warn!(error = %error, "rejected source download");
+        let mut response = text_response(StatusCode::SERVICE_UNAVAILABLE, &error.to_string());
+        response
+            .headers_mut()
+            .insert(header::RETRY_AFTER, HeaderValue::from_static("1"));
+        return response;
+    }
+    error_response(fetch_error_status(&error), error)
 }
 
 fn fetch_error_status(error: &anyhow::Error) -> StatusCode {
