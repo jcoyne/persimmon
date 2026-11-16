@@ -11,17 +11,16 @@ anyhow = "1"
 aws-config = "1"
 aws-sdk-s3 = "1"
 axum = { version = "0.8", features = ["json"] }
-axum-server = { version = "0.8", features = ["tls-rustls"] }
+axum-server = { version = "0.9", features = ["tls-rustls"] }
 base64 = "0.23"
 bytes = "1"
 futures = "0.3"
 hex = "0.4"
 # Not yet on crates.io, where the name belongs to an older, unrelated crate.
-honeybadger = { git = "https://github.com/honeybadger-io/honeybadger-rust", rev = "5d4d3103989d292f56f78de711d0798d875e190f", optional = true }
+honeybadger = { git = "https://github.com/honeybadger-io/honeybadger-rust", rev = "153ef95362203cc7e70a376316c76357c6f6b86e", optional = true }
 http = "1"
 image = { version = "0.25", default-features = false, features = ["avif", "bmp", "jpeg", "png", "webp", "pnm"] }
-# Unreleased fixes from the main branch.
-j2k = { git = "https://github.com/frames-sg/j2k", rev = "f1a5441ee0d61c9ddef121fa0f15dc7f4e05602f" }
+j2k = "0.14"
 jxl-oxide = { version = "0.12", default-features = false }
 memmap2 = "0.9"
 serde = { version = "1", features = ["derive"] }

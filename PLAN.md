@@ -19,7 +19,7 @@ The test deployment and its first known image URL are recorded in [tests/DEPLOYM
 
 ## JP2 decoding and image processing
 
-- [x] Decode JP2 regions in-process with the pure-Rust `j2k` crate (0.13.1), discarding resolution levels for smaller outputs, then perform final transforms and output encoding in Rust. Bound concurrent decodes, decoded pixels, and memory reservations. No licensed code is needed to build or run Persimmon.
+- [x] Decode JP2 regions in-process with the pure-Rust `j2k` crate (0.14.0), discarding resolution levels for smaller outputs, then perform final transforms and output encoding in Rust. Bound concurrent decodes, decoded pixels, and memory reservations. No licensed code is needed to build or run Persimmon.
 - [x] Test on the CC0 validator fixture that a regional decode matches a crop of the full decode, that reduced decodes have the expected sizes, and that gray outputs are one-channel.
 - [x] Benchmark tile rendering over the advertised tile grid with `examples/tile_bench.rs`, including large untiled sources with and without PLT markers; see [J2K_NOTES.md](J2K_NOTES.md).
 - [x] Check a synthetic one-channel JP2 through Linux Docker decoding: `info.json`, JPEG, WebP, and a rotated grayscale PNG returned correctly; see [tests/ACCEPTANCE.md](tests/ACCEPTANCE.md).
