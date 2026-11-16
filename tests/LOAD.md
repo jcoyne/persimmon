@@ -17,6 +17,52 @@ python3 tests/load_tiles.py \
 
 For a large source, add `--max-tiles 64` to keep the test focused on a repeated adjacent group and make the warm phase practical. Without it, the script covers the entire image grid.
 
+Without `--warm`, a run is only partly cold. Each connection walks the same tile list from a neighbouring offset, so most requests wait for a tile another connection is already rendering and then get it from the cache. To measure rendering throughput, use `--unique`. It deals the tiles round-robin to the instances, and each instance's connections take the next tile no one has requested yet. Every tile is requested exactly once, and the run ends when the tiles run out or `--seconds` passes. With Persimmon metrics, the report adds each instance's mean render time and average number of concurrent renders, both from `persimmon_render_duration_seconds_total`.
+
+A derivative cache only misses for URLs it hasn't seen. To repeat a cold run on the same source, change the URL but not the work: `--size-form width` (`w,`) and `--size-form height` (`,h`) ask for the same pixels as the default `!w,h` under new cache keys, and `--quality` and `--format` change the cache key and the output.
+
+```sh
+python3 tests/load_tiles.py \
+  --url https://server-a.example.edu/v3 --url https://server-b.example.edu/v3 \
+  --identifier 'a/b' --width 26326 --height 19105 --tile-size 1024 \
+  --unique --size-form height --connections 16 --seconds 60
+```
+
+## Deployed two-instance test, 2026-11-06
+
+The test deployment has two web hosts behind the `imageserver-test.stanford.edu` load balancer: `sul-imageserver-test-a` and `sul-imageserver-test-b`, configured in `persimmon-kamal` at `8594952`. The client sent requests to each host's own hostname, so per-instance `/metrics` deltas are reported separately. Both hosts ran a j2k build, as `persimmon_j2k_renders_total` rose, with the default 8 parallel decodes. The exact commit and image digest were not recorded. Host CPU count, memory, and CPU and memory use during the runs were not observed, since that needs host access.
+
+The source was the largest SDR image the deployment config names: [gd661tn4082](https://sul-purl-stage.stanford.edu/gd661tn4082) `gz877fn7534_00_0001.jp2`, 26326 × 19105 RGB, 294,823,985 bytes, Weka key `gd/661/tn/4082/gd661tn4082/content/3a2ef26aa6b7b7ab3accf9db52e8a7e0`. All runs used 1024 px tiles at scale factor 1: a 26 × 19 grid of 494 tiles. Each host downloaded the source once, in an earlier exploratory run, and kept it in its source cache. So every run below had the source on local disk, and "cold" means only that the derivatives were uncached. The client was one macOS laptop on the Stanford VPN from home Wi-Fi.
+
+### Uncached tiles (`--unique`)
+
+Every tile was requested once, split evenly between the two hosts. Each run used a quality or size form neither host had cached, which the report's `sample_path` records.
+
+| Connections (per host) | Tiles/s, both hosts | Requests, errors | p50 / p95 / p99 | Mean render | Average concurrent renders per host | Report |
+| --- | ---: | ---: | --- | ---: | ---: | --- |
+| 8 (4) | 13.33 | 341, 0 | 590 / 706 / 769 ms | 0.44 s | 2.9 | [8c](benchmark/results/deployed-gd661-persimmon-unique-8c.json) |
+| 16 (8) | 17.90 | 494, 0 | 876 / 1129 / 1473 ms | 0.69 s | 6.2 | [16c](benchmark/results/deployed-gd661-persimmon-unique-16c.json) |
+| 32 (16) | 17.36 | 494, 0 | 1795 / 2177 / 3058 ms | 0.89 s | 7.8 | [32c](benchmark/results/deployed-gd661-persimmon-unique-32c.json) |
+
+The 8-connection run hit its 25-second limit after 341 tiles. The other two rendered all 494. Each uncached request made about 5 S3 calls: a generation HEAD, two derivative GETs that missed (before and after taking the derivative lock), a generation HEAD before the write, and the PUT, which finishes before the response is sent.
+
+Throughput levels off at about 9 new 1024 px tiles per second per host. Mean render time, which covers decode and encode, roughly doubled from 4 to 16 connections per host. That suggests the hosts are CPU-bound at about 4 concurrent decodes, but host CPU wasn't measured. At 16 connections per host, the 8 decode permits were nearly always in use (7.8 average) and requests queued for them. At 8 connections per host, latency was about 180 ms above render time: the sequential S3 calls, plus occasional waits on the 256 per-derivative lock stripes. A separate 16-connection webp run (0.51 s mean render, 14.5 tiles/s) shows that render time varied from run to run.
+
+### Cached tiles (`--warm`)
+
+The first 64 tiles, cached in the shared derivative bucket, were fetched before timing.
+
+| Connections | Requests/s | Requests, errors | p50 / p95 / p99 | S3 calls/request | Report |
+| --- | ---: | ---: | --- | ---: | --- |
+| 16 | 230.86 | 4640, 0 | 63 / 109 / 122 ms | 2.00 | [16c](benchmark/results/deployed-gd661-persimmon-warm-16c.json) |
+| 64 | 503.65 | 10287, 0 | 116 / 217 / 383 ms | 2.00 | [64c](benchmark/results/deployed-gd661-persimmon-warm-64c.json) |
+| 128 | 583.65 | 11906, 0 | 186 / 426 / 598 ms | 2.00 | [128c](benchmark/results/deployed-gd661-persimmon-warm-128c.json) |
+| 128 (4 processes × 32) | 528.7 | 10812, 0 | 203–232 ms p50, 642–697 ms p99 | | [1](benchmark/results/deployed-gd661-persimmon-warm-4x32c-1.json), [2](benchmark/results/deployed-gd661-persimmon-warm-4x32c-2.json), [3](benchmark/results/deployed-gd661-persimmon-warm-4x32c-3.json), [4](benchmark/results/deployed-gd661-persimmon-warm-4x32c-4.json) |
+
+These numbers measure the client, not Persimmon. Four client processes got no more than one did, and Cantaloupe stage hit the same ceiling from the same client (see [CANTALOUPE_COMPARISON.md](CANTALOUPE_COMPARISON.md)). The tiles average about 90 KB, so 580 requests/s is about 420 Mbit/s, which is probably the laptop's VPN link. Warm capacity, and the PLAN.md target of thousands of requests per second, need load generators inside the Stanford network.
+
+`/metrics` answered publicly on both hosts and through the load balancer, which the deployment guidance in [DEPLOYMENT.md](DEPLOYMENT.md) advises against.
+
 ## Local j2k baseline, 2026-10-30
 
 Two Linux `arm64` Docker containers of the j2k build (commit `e1ce3af`) ran natively in Docker Desktop on an Apple M3 Pro (12 CPUs and 7.65 GiB for the Docker VM), serving HTTPS with a self-signed certificate. Moto 5.1.22 ran in a container on the same Docker network. The client ran on the host. Each source got fresh containers and a new cache prefix, so each cold phase started with empty source and derivative caches. Each warm phase requested every tile on both instances before timing.

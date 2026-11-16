@@ -3,6 +3,10 @@
 
 Uses only the Python standard library. Supply one --url per instance, pointing
 at the IIIF service root (for example http://127.0.0.1:3001/v3).
+
+By default each connection cycles through the tile set, so repeated requests
+measure cached derivatives. --unique instead requests every tile exactly once,
+across all instances, to measure rendering throughput on uncached tiles.
 """
 
 import argparse
@@ -10,6 +14,7 @@ import concurrent.futures
 import http.client
 import json
 import math
+import queue
 import subprocess
 import threading
 import time
@@ -17,7 +22,20 @@ import urllib.parse
 import urllib.request
 
 
-def tile_paths(service_url, identifier, width, height, tile_size, scale_factor):
+MIME_TYPES = {"jpg": "image/jpeg", "png": "image/png", "webp": "image/webp"}
+
+
+def size_segment(size_form, tile_size, region_width, region_height, scale_factor):
+    """Size forms that request the same pixels under different cache keys."""
+    if size_form == "confined":
+        return f"!{tile_size},{tile_size}"
+    if size_form == "width":
+        return f"{math.ceil(region_width / scale_factor)},"
+    return f",{math.ceil(region_height / scale_factor)}"
+
+
+def tile_paths(service_url, identifier, width, height, tile_size, scale_factor,
+               size_form="confined", quality="default", image_format="jpg"):
     parsed = urllib.parse.urlsplit(service_url.rstrip("/"))
     if parsed.scheme not in ("http", "https") or not parsed.netloc:
         raise ValueError(f"invalid service URL: {service_url}")
@@ -29,9 +47,10 @@ def tile_paths(service_url, identifier, width, height, tile_size, scale_factor):
         for x in range(0, width, region_span):
             region_width = min(region_span, width - x)
             region_height = min(region_span, height - y)
+            size = size_segment(size_form, tile_size, region_width, region_height, scale_factor)
             paths.append(
                 f"{root}/{x},{y},{region_width},{region_height}/"
-                f"!{tile_size},{tile_size}/0/default.jpg"
+                f"{size}/0/{quality}.{image_format}"
             )
     return parsed, paths
 
@@ -95,15 +114,13 @@ def sample_docker(containers, stop_event, samples, errors):
         stop_event.wait(1)
 
 
-def request_one(connection, path):
+def request_one(connection, path, mime="image/jpeg"):
     started = time.perf_counter()
     connection.request("GET", path)
     response = connection.getresponse()
     body = response.read()
     elapsed = time.perf_counter() - started
-    if response.status != 200 or not response.getheader("Content-Type", "").startswith(
-        "image/jpeg"
-    ):
+    if response.status != 200 or not response.getheader("Content-Type", "").startswith(mime):
         raise RuntimeError(f"HTTP {response.status} for {path}")
     if not body:
         raise RuntimeError(f"empty image body for {path}")
@@ -115,7 +132,12 @@ def connection_for(parsed):
     return cls(parsed.hostname, parsed.port, timeout=30)
 
 
-def worker(index, parsed, paths, start_event, deadline):
+def worker(index, parsed, paths, start_event, deadline, mime, unclaimed=None):
+    """Request tiles until the deadline.
+
+    Without `unclaimed`, cycle through `paths` from an offset. With it, take
+    the next unrequested tile from that shared queue and stop when it is empty.
+    """
     start_event.wait()
     latencies = []
     errors = []
@@ -123,9 +145,15 @@ def worker(index, parsed, paths, start_event, deadline):
     connection = connection_for(parsed)
     try:
         while time.perf_counter() < deadline:
-            path = paths[(index + count) % len(paths)]
+            if unclaimed is None:
+                path = paths[(index + count) % len(paths)]
+            else:
+                try:
+                    path = unclaimed.get_nowait()
+                except queue.Empty:
+                    break
             try:
-                latencies.append(request_one(connection, path))
+                latencies.append(request_one(connection, path, mime))
             except (OSError, http.client.HTTPException, RuntimeError) as error:
                 if len(errors) < 10:
                     errors.append(str(error))
@@ -153,6 +181,13 @@ def main():
     parser.add_argument("--tile-size", type=int, default=256)
     parser.add_argument("--scale-factor", type=int, default=1)
     parser.add_argument("--max-tiles", type=int, help="use only the first N adjacent tiles")
+    parser.add_argument("--unique", action="store_true",
+                        help="request each tile once across all instances, then stop")
+    parser.add_argument("--size-form", choices=["confined", "width", "height"], default="confined",
+                        help="size segment: !w,h (default), exact w, or exact ,h; the latter two "
+                             "render the same pixels under new derivative cache keys")
+    parser.add_argument("--quality", default="default")
+    parser.add_argument("--format", choices=sorted(MIME_TYPES), default="jpg")
     parser.add_argument("--connections", type=int, default=32)
     parser.add_argument("--seconds", type=float, default=30)
     parser.add_argument("--warm", action="store_true", help="request every tile on every instance before measuring")
@@ -168,19 +203,31 @@ def main():
         parser.error("seconds must be positive")
     if args.max_tiles is not None and args.max_tiles <= 0:
         parser.error("max-tiles must be positive")
+    if args.unique and args.warm:
+        parser.error("--unique measures uncached tiles; it cannot be combined with --warm")
 
+    mime = MIME_TYPES[args.format]
     instances = [
-        tile_paths(url, args.identifier, args.width, args.height, args.tile_size, args.scale_factor)
+        tile_paths(url, args.identifier, args.width, args.height, args.tile_size, args.scale_factor,
+                   args.size_form, args.quality, args.format)
         for url in args.url
     ]
     if args.max_tiles is not None:
         instances = [(parsed, paths[: args.max_tiles]) for parsed, paths in instances]
+    # In --unique mode, tile i goes to instance i % instances, and that
+    # instance's connections share one queue of the tiles not yet requested.
+    unclaimed = [None] * len(instances)
+    if args.unique:
+        for number, (_, paths) in enumerate(instances):
+            unclaimed[number] = queue.SimpleQueue()
+            for path in paths[number::len(instances)]:
+                unclaimed[number].put(path)
     if args.warm:
         for parsed, paths in instances:
             connection = connection_for(parsed)
             try:
                 for path in paths:
-                    request_one(connection, path)
+                    request_one(connection, path, mime)
             finally:
                 connection.close()
 
@@ -202,17 +249,22 @@ def main():
         docker_thread.start()
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.connections) as pool:
         futures = [
-            pool.submit(worker, index, *instances[index % len(instances)], start_event, deadline)
+            pool.submit(worker, index, *instances[index % len(instances)], start_event, deadline,
+                        mime, unclaimed[index % len(instances)])
             for index in range(args.connections)
         ]
         start_event.set()
-        while time.perf_counter() < deadline:
+        # --unique runs end when their tiles run out, possibly before the deadline.
+        while time.perf_counter() < deadline and not all(future.done() for future in futures):
             for pid in args.pid:
                 current = rss_kib(pid)
                 if current is not None:
                     key = str(pid)
                     peak_rss[key] = max(peak_rss[key] or 0, current)
-            time.sleep(min(1.0, max(0.0, deadline - time.perf_counter())))
+            concurrent.futures.wait(
+                futures, timeout=min(1.0, max(0.0, deadline - time.perf_counter())),
+                return_when=concurrent.futures.ALL_COMPLETED,
+            )
         results = [future.result() for future in futures]
     elapsed = time.perf_counter() - started
     docker_stop.set()
@@ -225,15 +277,21 @@ def main():
     attempts = sum(result[1] for result in results)
     metrics = []
     for (parsed, _), old, new in zip(instances, before, after):
+        delta = {
+            key: round(value - old.get(key, 0.0), 6)
+            for key, value in new.items()
+            if key.endswith("_total")
+        }
+        renders = delta.get("persimmon_renders_total", 0)
+        render_seconds = delta.get("persimmon_render_duration_seconds_total", 0)
         metrics.append(
             {
                 "instance": parsed.netloc,
-                "delta": {
-                    key: round(value - old.get(key, 0.0), 6)
-                    for key, value in new.items()
-                    if key.endswith("_total")
-                },
+                "delta": delta,
                 "source_cache_bytes": new.get("persimmon_source_cache_bytes"),
+                # Render time spans decode and encode while holding a decode permit.
+                "mean_render_seconds": round(render_seconds / renders, 3) if renders else None,
+                "average_concurrent_renders": round(render_seconds / elapsed, 2) if renders else None,
             }
         )
     report = {
@@ -241,6 +299,8 @@ def main():
         "tile_urls_per_instance": len(instances[0][1]),
         "connections": args.connections,
         "warm": args.warm,
+        "unique": args.unique,
+        "sample_path": instances[0][1][0],
         "elapsed_seconds": round(elapsed, 3),
         "requests": attempts,
         "successes": successes,
@@ -250,6 +310,7 @@ def main():
             "p50": percentile(latencies, 50),
             "p95": percentile(latencies, 95),
             "p99": percentile(latencies, 99),
+            "max": round(latencies[-1] * 1000, 2) if latencies else None,
         },
         "metrics": metrics,
         "metrics_collected": not args.no_metrics,

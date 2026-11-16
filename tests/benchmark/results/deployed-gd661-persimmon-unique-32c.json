@@ -1,0 +1,72 @@
+{
+  "tiles_total": 494,
+  "format": "jpg",
+  "quality": "default",
+  "scale_factors": [
+    1
+  ],
+  "connections": 32,
+  "size_mode": "h",
+  "urls": [
+    "https://sul-imageserver-test-a.stanford.edu/v3",
+    "https://sul-imageserver-test-b.stanford.edu/v3"
+  ],
+  "sample_path": "/v3/gd%2F661%2Ftn%2F4082%2Fgd661tn4082%2Fcontent%2F3a2ef26aa6b7b7ab3accf9db52e8a7e0/0,0,1024,1024/,1024/0/default.jpg",
+  "elapsed_seconds": 28.45,
+  "successes": 494,
+  "errors": 0,
+  "error_samples": [],
+  "requests_per_second": 17.36,
+  "latency_ms": {
+    "p50": 1795.46,
+    "p95": 2177.37,
+    "p99": 3058.49
+  },
+  "max_ms": 3484.7,
+  "metrics": [
+    {
+      "instance": "sul-imageserver-test-a.stanford.edu",
+      "delta": {
+        "persimmon_s3_requests_total": 1243.0,
+        "persimmon_source_cache_hits_total": 247.0,
+        "persimmon_source_cache_misses_total": 0.0,
+        "persimmon_source_downloads_total": 0.0,
+        "persimmon_source_download_bytes_total": 0.0,
+        "persimmon_source_evictions_total": 0.0,
+        "persimmon_derivative_cache_hits_total": 0.0,
+        "persimmon_derivative_cache_misses_total": 494.0,
+        "persimmon_derivative_writes_total": 247.0,
+        "persimmon_renders_total": 247.0,
+        "persimmon_jxl_renders_total": 0.0,
+        "persimmon_j2k_renders_total": 247.0,
+        "persimmon_render_duration_seconds_total": 219.126,
+        "persimmon_purges_total": 0.0,
+        "persimmon_errors_total": 0.0
+      },
+      "mean_render_s": 0.887,
+      "avg_concurrent_renders": 7.7
+    },
+    {
+      "instance": "sul-imageserver-test-b.stanford.edu",
+      "delta": {
+        "persimmon_s3_requests_total": 1245.0,
+        "persimmon_source_cache_hits_total": 247.0,
+        "persimmon_source_cache_misses_total": 0.0,
+        "persimmon_source_downloads_total": 0.0,
+        "persimmon_source_download_bytes_total": 0.0,
+        "persimmon_source_evictions_total": 0.0,
+        "persimmon_derivative_cache_hits_total": 0.0,
+        "persimmon_derivative_cache_misses_total": 494.0,
+        "persimmon_derivative_writes_total": 247.0,
+        "persimmon_renders_total": 247.0,
+        "persimmon_jxl_renders_total": 0.0,
+        "persimmon_j2k_renders_total": 247.0,
+        "persimmon_render_duration_seconds_total": 223.138,
+        "persimmon_purges_total": 0.0,
+        "persimmon_errors_total": 0.0
+      },
+      "mean_render_s": 0.903,
+      "avg_concurrent_renders": 7.84
+    }
+  ]
+}

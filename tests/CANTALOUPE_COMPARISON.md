@@ -1,8 +1,34 @@
-# Local JP2 throughput comparison: Persimmon and Cantaloupe
+# JP2 throughput comparison: Persimmon and Cantaloupe
 
-Measured on 2026-09-30. This is a development benchmark, not a production throughput claim.
+The [deployed comparison](#deployed-comparison-2026-11-06) ran on 2026-11-06 against the Persimmon test hosts and the Cantaloupe stage hosts, with the same Weka source. The local development benchmark that follows it was measured on 2026-09-30. Neither one is a production throughput claim.
 
-## Setup
+## Deployed comparison, 2026-11-06
+
+- **Persimmon:** the two `imageserver-test` hosts, `sul-imageserver-test-a` and `-b`, running a j2k build with the default 8 parallel decodes. See [LOAD.md](LOAD.md#deployed-two-instance-test-2026-11-06) for the deployment details and more runs.
+- **Cantaloupe:** the two `imageserver-stage` hosts, `sul-imageserver-stage-a` and `-b`, reporting `X-Powered-By: Cantaloupe/5.0.9-sul-2026-q4-2`. Its processor, cache settings, and host hardware were not checked. It has a derivative cache: repeated tiles were served in about 57 ms. Stage may have had other traffic during the runs.
+- **Source:** both servers read the same `stacks-test` Weka bucket, and both accepted key `gd/661/tn/4082/gd661tn4082/content/3a2ef26aa6b7b7ab3accf9db52e8a7e0` as the identifier. It is gd661tn4082, 26326 × 19105 RGB, 294,823,985 bytes. Before timing, each Persimmon host already had the source in its local cache, and each Cantaloupe host had already served one image from it (the first Cantaloupe tile took 5.9 s; later ones took about 0.4 s).
+- **Load:** [load_tiles.py](load_tiles.py) from one macOS laptop on the Stanford VPN, sent to each host's own name, one server at a time, 1024 px JPEG tiles at scale factor 1. Uncached runs used `--unique`, with a size form and quality neither server had cached. Paired runs used the same URLs on both servers.
+
+| Phase | Server | Tiles or requests/s | Requests, errors | p50 / p95 / p99 | Report |
+| --- | --- | ---: | ---: | --- | --- |
+| Uncached, 16 connections | Persimmon | 17.90 | 494, 0 | 876 / 1129 / 1473 ms | [json](benchmark/results/deployed-gd661-persimmon-unique-16c.json) |
+| Uncached, 16 connections | Cantaloupe | 2.30 | 78, 0 | 6117 / 8254 / 8364 ms | [json](benchmark/results/deployed-gd661-cantaloupe-unique-16c.json) |
+| Uncached, 32 connections | Persimmon | 17.36 | 494, 0 | 1795 / 2177 / 3058 ms | [json](benchmark/results/deployed-gd661-persimmon-unique-32c.json) |
+| Uncached, 32 connections | Cantaloupe | 2.57 | 96, 0 | 12042 / 13032 / 13580 ms | [json](benchmark/results/deployed-gd661-cantaloupe-unique-32c.json) |
+| Cached 64 tiles, 16 connections | Persimmon | 230.86 | 4640, 0 | 63 / 109 / 122 ms | [json](benchmark/results/deployed-gd661-persimmon-warm-16c.json) |
+| Cached 64 tiles, 16 connections | Cantaloupe | 259.19 | 7803, 0 | 57 / 70 / 260 ms | [json](benchmark/results/deployed-gd661-cantaloupe-warm-16c.json) |
+| Cached 64 tiles, 4 × 32 connections | Persimmon | 528.7 | 10812, 0 | 203–232 ms p50, 642–697 ms p99 | `deployed-gd661-persimmon-warm-4x32c-*.json` |
+| Cached 64 tiles, 4 × 32 connections | Cantaloupe | 591.2 | 11968, 0 | 179–227 ms p50, 568–716 ms p99 | `deployed-gd661-cantaloupe-warm-4x32c-*.json` |
+
+In the 16-connection uncached pair, both servers got `gray` quality: Persimmon with `,h` sizes and Cantaloupe with `w,` sizes, which give the same pixels. The 32-connection pair used `,h` sizes with `default` quality on both servers, and was measured with a prototype of `--unique` that worked the same way. Persimmon rendered all 494 tiles in both runs (27.6 s at 16 connections). Cantaloupe's runs ended at their 30-second limit.
+
+On uncached tiles from this 295 MB source, Persimmon rendered 7.8× and 6.8× as many tiles per second as Cantaloupe, at about a seventh of the median latency. Cantaloupe's repeat time for a single tile, about 0.4 s, is close to Persimmon's render time. Its throughput under concurrent load was far lower, but without its configuration and host data this comparison can't say why.
+
+On cached tiles, both servers performed about the same, and both stopped at roughly 530–590 requests/s. That is the client's limit: about 90 KB tiles over the laptop's VPN link, around 420 Mbit/s. The warm rows don't compare the servers' cache-serving capacity. That needs load generators inside the Stanford network, and host CPU and memory sampling for both servers.
+
+## Local benchmark, 2026-09-30
+
+### Setup
 
 - **Persimmon:** repository commit `3b804a6`, Docker image `persimmon:dev` (`sha256:45c815827926f0e7519e510036e66773a9b7ff84c2c8fefd478f924756396dc1`), Kakadu 8.6.2 native regional adapter. `/metrics` showed 64 native renders per cold image, zero command renders and zero fallbacks. The subsequent `info.json` quality-advertisement fix was not in the measured image and does not affect tile rendering.
 - **Cantaloupe:** [v5.0.7 release](https://github.com/cantaloupe-project/cantaloupe/releases/tag/v5.0.7), bundled Kakadu 8.4.1, Docker image `cantaloupe:bench` (`sha256:4cf82a6a858ee63a8d7a671f2acdebfc6d75d6744cae6cb5a1e2cf4aa88f15b8`). JP2 was mapped to `KakaduNativeProcessor`; its logs confirmed that processor served JP2 tiles. The image was built from the v5.0.7 tag with [this Dockerfile](benchmark/cantaloupe.Dockerfile) and its bundled Linux Kakadu libraries.
@@ -24,7 +50,7 @@ python3 tests/load_tiles.py --url http://127.0.0.1:3001/v3 \
 # --width 16384 and --height 16384.
 ```
 
-## Results
+### Results
 
 The unrounded tool output for all eight runs is retained in [benchmark/results](benchmark/results).
 
@@ -41,7 +67,7 @@ The unrounded tool output for all eight runs is retained in [benchmark/results](
 
 Persimmon delivered 11.9× and 4.4× Cantaloupe's observed request rate in the 8 MB and 100 MB cold phases, and 3.9× and 1.9× in the warm phases. Persimmon's cold phases downloaded each source once and generated 64 derivatives with the native adapter. Its warm phases generated none and issued about two S3 operations per request (purge-marker HEAD and derivative GET). Cantaloupe did not expose equivalent per-request metrics in this setup.
 
-## Persimmon with j2k, 2026-10-30
+### Persimmon with j2k, 2026-10-30
 
 The Persimmon half was repeated with the j2k build on the same host. The Cantaloupe image was not rebuilt, and the Cantaloupe rows above are compared unchanged. The setup matched the original: the Linux `amd64` image from commit `e1ce3af` (`sha256:cca338863680d1bfc5c4254adf29fb718a72007733d4562265e14044d791d0d9`) under emulation, plain HTTP, Moto 5.2.5 on the host at `host.docker.internal:5001`, 16 connections, the first 64 adjacent 256 px tiles, and 10-second windows. A 64 px image warmed the process first. The synthetic sources were regenerated with the same commands, at 8,293,205 and 99,450,359 bytes, and uploaded in one part. The run was repeated after the host's `TIME_WAIT` sockets drained; the second run is below and in [benchmark/results](benchmark/results) as `persimmon-j2k-*.json`.
 
@@ -56,7 +82,7 @@ Each cold phase downloaded the source once and made 64 j2k renders. Against Cant
 
 Both runs had one failed request in the 8 MB warm and 100 MB cold phases. Each was an S3 `dispatch failure` to the host Moto, which closes every connection and left about 15,000 host sockets in `TIME_WAIT`; see [LOAD.md](LOAD.md#local-j2k-baseline-2026-10-30). The failing request also stalled its phase: those two phases took 18.4 and 21.4 seconds instead of 10, which lowers their request rates. The warm phases render nothing, so the 8 MB warm difference from the Kakadu build reflects this stall, not decoding. The first run gave 312.72, 213.10, 131.84, and 373.06 requests/s, with the same two errors.
 
-## Interpretation and limits
+### Interpretation and limits
 
 The request sequence and S3 emulator were shared, but this does **not** isolate Rust from Java or one server implementation from another. Kakadu versions differed (8.6.2 versus 8.4.1), JPEG encoders can produce different byte sizes at the same nominal quality, cache lookup behavior differs, and all processes competed with the local Moto service and an emulated CPU. The synthetic random-noise JP2s are useful for decode and download stress, but do not represent archival imagery. CPU and memory numbers are a handful of Docker samples, not continuous peaks; the Cantaloupe JVM also retained memory between phases. Cold throughput includes the transition from misses to hits during the timed run, so it is not uncached decode capacity.
 
