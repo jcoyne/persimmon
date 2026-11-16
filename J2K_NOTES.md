@@ -2,7 +2,7 @@
 
 Persimmon decodes JP2 sources with the pure-Rust [`j2k`](https://github.com/frames-sg/j2k) crate. Until 2026-10-30 it used Kakadu, and j2k was an optional, experimental alternative. The measurements below compare the two, and the Kakadu figures come from that earlier build.
 
-Persimmon builds against j2k 0.13.1 from crates.io (released 2026-10-29). With the previous release, 0.12.0, on the untiled JP2s that SDR produces, Kakadu was 4 to 13 times faster at generating tiles, used a small fraction of the memory, and was the only one of the two that could decode large images at all. Those measurements are kept below under [j2k 0.12.0 (2026-10-14)](#j2k-0120-2026-10-14).
+Persimmon builds against j2k 0.14.0 from crates.io (released 2026-11-13). The newest measurements below are with 0.13.1 and have not been repeated with 0.14.0. With 0.12.0, on the untiled JP2s that SDR produces, Kakadu was 4 to 13 times faster at generating tiles, used a small fraction of the memory, and was the only one of the two that could decode large images at all. Those measurements are kept below under [j2k 0.12.0 (2026-10-14)](#j2k-0120-2026-10-14).
 
 0.13.0 includes the changes measured on j2k `main` in October. At commit `2d3ccc29` (2026-10-23), Kakadu was 1.2 to 1.6 times faster, j2k decoded the 18000 × 12000 images, and on sources with PLT markers j2k used 2 to 3.5 times Kakadu's memory instead of 20 to 35 times. See [j2k main (2026-10-23)](#j2k-main-2026-10-23). At commit `3967d045` (2026-10-25), sources without PLT markers no longer cost much more than sources with them. On the 18000 × 12000 image without PLT, peak RSS falls from 750 to 91 MB at concurrency 1 and from 1,840 to 675 MB at concurrency 8. See [j2k main (2026-10-25)](#j2k-main-2026-10-25).
 
