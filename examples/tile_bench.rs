@@ -136,6 +136,7 @@ async fn run(args: &Args) -> anyhow::Result<()> {
                     request,
                     EncodeSettings::default(),
                     100_000_000,
+                    true,
                 )
                 .await?;
                 timings.push((*factor, tile_started.elapsed(), bytes.len()));

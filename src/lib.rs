@@ -1,6 +1,7 @@
 pub mod config;
 pub mod iiif;
 pub mod j2k_decoder;
+pub mod j2k_index;
 pub mod jp2;
 pub mod jxl;
 pub mod metrics;

@@ -9,11 +9,16 @@ use crate::iiif::Rect;
 /// Decode one region of a JP2 with the pure-Rust `j2k` crate, discarding
 /// `level` resolution levels. The source is memory
 /// mapped so only the codestream bytes the region needs are read from disk.
+///
+/// `complete` is false while the source is still downloading and only the
+/// bytes for `level` are known to be on disk; the decode then never falls back
+/// to full resolution, which would read bytes not yet written.
 pub fn decode_region(
     path: &Path,
     region: Rect,
     level: u32,
     max_pixels: u64,
+    complete: bool,
 ) -> anyhow::Result<DynamicImage> {
     let file = File::open(path)?;
     // The source cache holds a lease on this file for the request, and
@@ -64,7 +69,7 @@ pub fn decode_region(
     // Tile or component coding styles can still have fewer levels than the
     // main header. Fall back to full resolution.
     let (width, height, pixels) = match attempt(&mut decoder, level) {
-        Err(e) if level > 0 => {
+        Err(e) if level > 0 && complete => {
             tracing::warn!(error = %format!("{e:#}"), "j2k reduced decode failed; retrying without reduction");
             attempt(&mut decoder, 0)?
         }
@@ -96,12 +101,12 @@ mod tests {
             width: 512,
             height: 512,
         };
-        let full = decode_region(path, region, 0, 1_000_000).unwrap();
+        let full = decode_region(path, region, 0, 1_000_000, true).unwrap();
         assert_eq!((full.width(), full.height()), (512, 512));
-        let reduced = decode_region(path, region, 1, 1_000_000).unwrap();
+        let reduced = decode_region(path, region, 1, 1_000_000, true).unwrap();
         // The reduced region covers x 128..385 and y 131..388 at half resolution.
         assert_eq!((reduced.width(), reduced.height()), (257, 257));
-        assert!(decode_region(path, region, 0, 512 * 512 - 1).is_err());
+        assert!(decode_region(path, region, 0, 512 * 512 - 1, true).is_err());
     }
 
     #[test]
@@ -114,7 +119,7 @@ mod tests {
             height: 1000,
         };
         // The fixture has four decomposition levels, so ten clamps to four.
-        let image = decode_region(path, full, 10, 1_000_000).unwrap();
+        let image = decode_region(path, full, 10, 1_000_000, true).unwrap();
         assert_eq!((image.width(), image.height()), (63, 63));
     }
 }

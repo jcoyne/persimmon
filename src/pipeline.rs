@@ -105,6 +105,8 @@ pub fn reduced_size(region: Rect, level: u32) -> (u32, u32) {
 }
 
 /// Decode a JP2 source region with `j2k` and encode the requested output.
+/// `complete` says whether the whole source is on disk; see
+/// [`crate::j2k_decoder::decode_region`].
 pub async fn render_jp2(
     source: &Path,
     region: Rect,
@@ -112,12 +114,14 @@ pub async fn render_jp2(
     request: &ImageRequest,
     encoding: EncodeSettings,
     max_decode_pixels: u64,
+    complete: bool,
 ) -> anyhow::Result<Vec<u8>> {
     let path = source.to_owned();
     let level = reduction_level(region, size);
     let request = request.clone();
     tokio::task::spawn_blocking(move || {
-        let image = crate::j2k_decoder::decode_region(&path, region, level, max_decode_pixels)?;
+        let image =
+            crate::j2k_decoder::decode_region(&path, region, level, max_decode_pixels, complete)?;
         transform_encode(image, size, &request, encoding)
     })
     .await?
@@ -268,6 +272,7 @@ mod tests {
             &full_request,
             EncodeSettings::default(),
             1_000_000,
+            true,
         )
         .await
         .unwrap();
@@ -289,6 +294,7 @@ mod tests {
             &cropped_request,
             EncodeSettings::default(),
             1_000_000,
+            true,
         )
         .await
         .unwrap();
@@ -320,6 +326,7 @@ mod tests {
                 &request,
                 EncodeSettings::default(),
                 1_000_000,
+                true,
             )
             .await
             .unwrap();

@@ -8,6 +8,7 @@ Persimmon is an image server that implements the [IIIF Image API 3.0](https://ii
 - Output as JPEG, PNG, AVIF, lossless WebP, or lossless JPEG XL
 - Reads JP2 or JPEG XL source images from any S3-compatible store
 - Caches source files on local disk and rendered images in S3, shared across instances
+- Renders reduced-resolution JP2 requests while the source is still downloading, when the JP2's layout allows it
 - Authenticated purge endpoint to clear the caches for an image
 - Native TLS, a health check, and Prometheus metrics
 

@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{future::Future, path::Path};
 
 use axum::{
     http::{HeaderValue, StatusCode, header},
@@ -33,7 +33,7 @@ pub(super) async fn fetch(
 ) -> Step<SourceLease> {
     state
         .storage
-        .source_path(identifier, generation)
+        .source(identifier, generation)
         .await
         .map_err(fetch_error_response)
 }
@@ -63,6 +63,13 @@ fn fetch_error_status(error: &anyhow::Error) -> StatusCode {
     } else {
         StatusCode::SERVICE_UNAVAILABLE
     }
+}
+
+/// Waits for a source's download to reach the point a read needs.
+pub(super) async fn wait<T>(waiting: impl Future<Output = anyhow::Result<T>>) -> Step<T> {
+    waiting
+        .await
+        .map_err(|e| error_response(StatusCode::SERVICE_UNAVAILABLE, e))
 }
 
 /// Reads the source's width, height and component count, and whether it is JPEG XL.
@@ -111,6 +118,7 @@ pub(super) async fn dimensions(
         Ok(Ok(Some(dimensions))) => Ok(dimensions),
         Ok(Ok(None)) => {
             let source = fetch(state, identifier, generation).await?;
+            wait(source.wait_for_header()).await?;
             Ok(probe(&source.path).await?.0)
         }
         Ok(Err(e)) => Err(error_response(StatusCode::INTERNAL_SERVER_ERROR, e)),

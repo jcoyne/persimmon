@@ -43,6 +43,29 @@ With j2k 0.13.0, which filled a floating-point plane per component before writin
 
 Until 2026-10-26, the reservation was 10 bytes per source sample, up to 512 MiB, sized for j2k 0.12.0, whose cost followed the source. With the default budget, that let about three j2k decodes of a large untiled image run at once. Without it, eight concurrent decodes of the 24 MP image peaked at 3.3 GB with 0.12.0.
 
+## Decoding before the source has downloaded (2026-11-24)
+
+`src/j2k_index.rs` finds where each resolution's packets end in a JP2 with one RPCL tile-part and PLT markers; see [Source downloads](Configuring.md#source-downloads). j2k 0.14.0 reads every tile-part header and the EOC marker, so those bytes must be on disk too. Given only the main header, the tile-part header, the packets up to the cutoff for a reduction level, and the bytes from EOC to the end, a decode at that level is identical to one from the whole file. That held at every level of every SDR JP2 with PLT markers checked locally:
+
+| Source | Size | 1/32 | 1/16 | 1/8 | 1/4 | 1/2 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `mg777qb7897_00_0050.jp2`, 5100 × 7377 | 7 MB | 1.6% | 3.7% | 10.4% | 30.3% | 72.9% |
+| `large-plt.jp2`, 18000 × 12000 | 48 MB | 1.9% | 5.3% | 14.1% | 32.3% | 64.6% |
+| `sdr-map.jp2`, 18000 × 12000 | 214 MB | 0.4% | 1.1% | 3.6% | 11.8% | 38.7% |
+| `kp368nb7707_0001.jp2`, 4096 × 252840 | 1,216 MB | 0.4% | 1.0% | 2.9% | 10.1% | |
+
+Percentages are the share of the file a decode at that scale needs, besides the last few bytes. Bytes missing from a source without PLT markers can decode to wrong pixels with no error, so Persimmon never relies on j2k reporting missing data. Sources without PLT markers wait for the whole file until j2k can report where a resolution ends.
+
+With Moto behind a proxy that sent responses at 50 MB/s, the first 1/32-scale image of a source not yet cached took:
+
+| Source | Before | After |
+| --- | ---: | ---: |
+| `sdr-map.jp2` (214 MB) | 4.5 s | 0.18 s |
+| `kp368nb7707_0001.jp2` (1.2 GB) | 25.0 s | 1.3 s |
+| `large.jp2` (48 MB, no PLT) | 1.06 s | 1.08 s |
+
+About 1 s of the 1.3 s is Moto, which took 0.25 to 0.46 s to answer each ranged GET of the 1.2 GB object; Persimmon makes two. A full-resolution tile requested next still waited for the rest of the download.
+
 ## j2k 0.13.1 on an SDR image (2026-10-30)
 
 [`gg891fv3841_0002.jp2`](https://stacks.stanford.edu/file/druid:gg891fv3841/gg891fv3841_0002.jp2) is a 5661 × 8287 RGB JP2 from SDR: untiled, lossy (9/7), RPCL progression, five decomposition levels, 256 px precincts at the top two resolutions and 128 px below, 20 MB. `tile_bench` rendered all 234 tiles of the 1024 px grid at every scale, three rounds, natively on an Apple M3 Pro, with peak memory from `/usr/bin/time -l`:

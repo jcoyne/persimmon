@@ -2,4 +2,5 @@
 /.env
 *.jp2
 !tests/fixtures/iiif-validator.jp2
+!tests/fixtures/rpcl-plt.jp2
 __pycache__/
