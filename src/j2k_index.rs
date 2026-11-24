@@ -190,7 +190,19 @@ fn parse(data: &[u8], file_len: u64) -> Parse<Layout> {
             return Ok(Layout::Unsupported("invalid marker segment length"));
         }
         match marker {
-            PLT => plt.push((pos + 4, pos + 2 + len)),
+            PLT if len < 3 => return Ok(Layout::Unsupported("invalid PLT")),
+            PLT => {
+                // j2k orders PLT segments by their Zplt index, not by position.
+                // Insist the two agree, which also rules out an index that wraps.
+                let index = u8_at(data, pos + 4)?;
+                if plt
+                    .last()
+                    .is_some_and(|&(previous, _, _)| index <= previous)
+                {
+                    return Ok(Layout::Unsupported("PLT markers out of Zplt order"));
+                }
+                plt.push((index, pos + 5, pos + 2 + len));
+            }
             COD | COC => return Ok(Layout::Unsupported("coding style in tile-part header")),
             POC => return Ok(Layout::Unsupported("progression order change (POC)")),
             PPT => return Ok(Layout::Unsupported("packed packet headers (PPT)")),
@@ -200,14 +212,15 @@ fn parse(data: &[u8], file_len: u64) -> Parse<Layout> {
         pos += 2 + len;
     }
     let mut lengths = Vec::new();
-    let mut pending = 0u64;
-    let mut pending_bytes = 0u32;
-    for (start, end) in plt {
-        // Zplt, then lengths in 7-bit groups, high bit set on all but the last.
-        for &byte in slice(data, start, end)?.get(1..).unwrap_or_default() {
+    for (_, start, end) in plt {
+        // Lengths in 7-bit groups, high bit set on all but the last. Like j2k,
+        // decode each segment on its own: a length may not continue into the next.
+        let mut pending = 0u64;
+        let mut pending_bytes = 0u32;
+        for &byte in slice(data, start, end)? {
             pending = pending << 7 | u64::from(byte & 0x7f);
             pending_bytes += 1;
-            if pending_bytes > 5 {
+            if pending_bytes > 5 || pending > u64::from(u32::MAX) {
                 return Ok(Layout::Unsupported("invalid PLT"));
             }
             if byte & 0x80 == 0 {
@@ -216,12 +229,12 @@ fn parse(data: &[u8], file_len: u64) -> Parse<Layout> {
                 pending_bytes = 0;
             }
         }
+        if pending_bytes != 0 {
+            return Ok(Layout::Unsupported("invalid PLT"));
+        }
     }
     if lengths.is_empty() {
         return Ok(Layout::Unsupported("no PLT markers"));
-    }
-    if pending_bytes != 0 {
-        return Ok(Layout::Unsupported("invalid PLT"));
     }
     let data_start = pos;
     let Some(packets) = siz.packets_per_resolution(&cod) else {
@@ -410,7 +423,9 @@ mod tests {
         levels: u8,
         precincts: Option<Vec<u8>>,
         tile_parts: u8,
-        plt: bool,
+        /// The Zplt index of each PLT segment, which share the packet lengths
+        /// in order. Empty for no PLT markers.
+        plt: Vec<u8>,
     }
 
     impl Default for Builder {
@@ -424,7 +439,7 @@ mod tests {
                 levels: 2,
                 precincts: None,
                 tile_parts: 1,
-                plt: true,
+                plt: vec![0],
             }
         }
     }
@@ -454,9 +469,10 @@ mod tests {
             segment(&mut cs, COD, &cod);
             segment(&mut cs, 0xff5c, &[0x22, 0x88]);
             let mut header = Vec::new();
-            if self.plt {
-                let mut plt = vec![0];
-                for &len in packet_lengths {
+            let per_segment = packet_lengths.len().div_ceil(self.plt.len().max(1));
+            for (&index, lengths) in self.plt.iter().zip(packet_lengths.chunks(per_segment)) {
+                let mut plt = vec![index];
+                for &len in lengths {
                     let mut groups = vec![(len & 0x7f) as u8];
                     let mut rest = len >> 7;
                     while rest > 0 {
@@ -557,12 +573,80 @@ mod tests {
     }
 
     #[test]
+    fn reads_plt_segments_in_zplt_order() {
+        // Lengths that differ by resolution, so a reordering moves the cutoffs
+        // without changing the packet count or total.
+        let lengths: Vec<u64> = (0..18).map(|i| if i < 6 { 1 } else { 300 }).collect();
+        let split = Builder {
+            plt: vec![0, 1, 2],
+            ..Builder::default()
+        };
+        let file = split.build(&lengths);
+        let start = split.header_len(&file) as u64;
+        assert_eq!(
+            ends(locate(&file, file.len() as u64)).ends,
+            vec![start + 6, start + 6 + 1800, start + 6 + 3600]
+        );
+        // Gaps in the sequence are allowed; j2k only sorts by it.
+        let gaps = Builder {
+            plt: vec![3, 7, 200],
+            ..Builder::default()
+        };
+        let file = gaps.build(&lengths);
+        assert!(matches!(
+            locate(&file, file.len() as u64),
+            Layout::Resolutions(_)
+        ));
+        // Segments out of order, or repeating an index (as one that wrapped
+        // past 255 would), are decoded by j2k in another order.
+        for plt in [vec![1, 0, 2], vec![0, 0, 1]] {
+            let builder = Builder {
+                plt,
+                ..Builder::default()
+            };
+            let file = builder.build(&lengths);
+            assert_eq!(
+                locate(&file, file.len() as u64),
+                Layout::Unsupported("PLT markers out of Zplt order")
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_a_packet_length_split_across_plt_segments() {
+        let builder = Builder::default();
+        let lengths = vec![200u64; 18];
+        let mut file = builder.build(&lengths);
+        // Turn the single PLT segment into two, cutting the first length
+        // after its continuation byte. The marker adds 5 bytes to the header.
+        let plt = file.windows(2).position(|w| w == [0xff, 0x58]).unwrap();
+        let len = u16::from_be_bytes([file[plt + 2], file[plt + 3]]) as usize;
+        file[plt + 2..plt + 4].copy_from_slice(&4u16.to_be_bytes());
+        let rest = (len - 4) as u16 + 3;
+        let mut second = vec![0xff, 0x58];
+        second.extend(rest.to_be_bytes());
+        second.push(1);
+        file.splice(plt + 6..plt + 6, second);
+        // Keep Psot and the jp2c box length consistent with the longer header.
+        let sot = file.windows(2).position(|w| w == [0xff, 0x90]).unwrap();
+        let psot = u32::from_be_bytes(file[sot + 6..sot + 10].try_into().unwrap()) + 5;
+        file[sot + 6..sot + 10].copy_from_slice(&psot.to_be_bytes());
+        let jp2c = file.windows(4).position(|w| w == b"jp2c").unwrap() - 4;
+        let boxlen = u32::from_be_bytes(file[jp2c..jp2c + 4].try_into().unwrap()) + 5;
+        file[jp2c..jp2c + 4].copy_from_slice(&boxlen.to_be_bytes());
+        assert_eq!(
+            locate(&file, file.len() as u64),
+            Layout::Unsupported("invalid PLT")
+        );
+    }
+
+    #[test]
     fn falls_back_for_unsupported_layouts() {
         let lengths: Vec<u64> = vec![1; 18];
         let cases = [
             (
                 Builder {
-                    plt: false,
+                    plt: vec![],
                     ..Builder::default()
                 },
                 "no PLT markers",
