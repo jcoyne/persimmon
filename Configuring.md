@@ -32,7 +32,7 @@ The AWS SDK default credential chain supplies S3 credentials and region. An inst
 | `PERSIMMON_MAX_OUTPUT_PIXELS` | `100000000` | Largest output image area. Reported as `maxArea` in `info.json`. |
 | `PERSIMMON_MAX_DECODE_PIXELS` | `100000000` | Largest decoded region area, after discarding JP2 resolution levels, accepted by the JP2 and JPEG XL decoders. Must be at least the output pixel limit. |
 | `PERSIMMON_MAX_PARALLEL_DECODES` | `8` | Per-instance limit on concurrent decodes. Each decode uses one thread. |
-| `PERSIMMON_MAX_PARALLEL_DOWNLOADS` | `8` | Per-instance source download limit. |
+| `PERSIMMON_MAX_PARALLEL_DOWNLOADS` | `8` | Per-instance source download limit. A download continues after the request that started it ends, so later requests can use the source. |
 | `PERSIMMON_RENDER_WAIT_SECONDS` | `10` | Longest a request waits, in total, for render memory and a decode slot. A request still waiting then fails with `503` and `Retry-After: 1`, releasing its source. Counted by `persimmon_render_wait_timeouts_total`. |
 | `PERSIMMON_MAX_IN_FLIGHT_REQUESTS` | `64` | Per-instance limit on requests performing S3 or image work. Excess requests fail immediately with `503` and `Retry-After: 1`; liveness, metrics, and IIIF base redirects do not consume a slot. |
 | `PERSIMMON_MIN_SIZE` | `64` | Minimum advertised `sizes` dimension. |
@@ -75,6 +75,12 @@ The job lists derivatives, totals their sizes, and deletes the oldest objects un
 ## Caching and purges
 
 Image and `info.json` responses allow downstream HTTP caches to keep them for one day. Serialized `info.json` documents share the S3 derivative cache and are scoped to the source generation and information-related configuration. An admin purge invalidates server caches; browsers and proxies may continue serving the previous response until their cached copy expires.
+
+## Source downloads
+
+A source that isn't in the local cache is downloaded in full, but a request for a JP2 that discards resolution levels can start decoding before the download finishes. This needs a JP2 whose codestream is one tile in one tile-part, in RPCL or RLCP order (or LRCP with one layer), with PLT markers. Untiled JP2s from SDR with PLT markers fit. Once the codestream header arrives, Persimmon works out from the PLT markers where each resolution's packets end. It also fetches the last bytes of the file with a ranged `GetObject`, because the decoder reads them. A request then waits only until its resolutions are on disk. A 1/32-scale image of a 1.2 GB source needs about 0.4% of the file. Full-resolution requests, JPEG XL sources, and JP2s with other layouts wait for the whole file. If a decode from a partly downloaded source fails, the error is reported and the request waits for the whole source and decodes again.
+
+`persimmon_partial_source_renders_total` counts renders that started before their source finished downloading. `persimmon_partial_source_retries_total` counts those that failed and were decoded again from the whole source. That counter should stay at zero.
 
 ## Monitoring
 

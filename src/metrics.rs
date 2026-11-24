@@ -18,6 +18,10 @@ pub struct Metrics {
     pub j2k_renders: AtomicU64,
     pub render_duration_ns: AtomicU64,
     pub render_wait_timeouts: AtomicU64,
+    /// Renders that started before their source finished downloading.
+    pub partial_source_renders: AtomicU64,
+    /// Of those, renders that failed and were tried again from the whole source.
+    pub partial_source_retries: AtomicU64,
     pub purges: AtomicU64,
     pub errors: AtomicU64,
 }
@@ -63,6 +67,10 @@ impl Metrics {
                 "persimmon_render_duration_seconds_total {:.9}\n",
                 "# TYPE persimmon_render_wait_timeouts_total counter\n",
                 "persimmon_render_wait_timeouts_total {}\n",
+                "# TYPE persimmon_partial_source_renders_total counter\n",
+                "persimmon_partial_source_renders_total {}\n",
+                "# TYPE persimmon_partial_source_retries_total counter\n",
+                "persimmon_partial_source_retries_total {}\n",
                 "# TYPE persimmon_purges_total counter\n",
                 "persimmon_purges_total {}\n",
                 "# TYPE persimmon_errors_total counter\n",
@@ -84,6 +92,8 @@ impl Metrics {
             read(&self.j2k_renders),
             read(&self.render_duration_ns) as f64 / 1_000_000_000.0,
             read(&self.render_wait_timeouts),
+            read(&self.partial_source_renders),
+            read(&self.partial_source_retries),
             read(&self.purges),
             read(&self.errors),
         )

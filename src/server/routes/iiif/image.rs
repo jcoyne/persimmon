@@ -62,18 +62,52 @@ pub(super) async fn serve(
         return Ok(response);
     }
     let source = source::fetch(state, identifier, &generation).await?;
+    source::wait(source.wait_for_header()).await?;
     let ((width, height, components), is_jxl) = source::probe(&source.path).await?;
     let region = iiif::region_rect(&request.region, width, height)
         .map_err(|e| error_response(StatusCode::BAD_REQUEST, e))?;
     let size = iiif::output_size(&request.size, region, state.config.max_output_pixels)
         .map_err(|e| error_response(StatusCode::BAD_REQUEST, e))?;
+    // A JP2 decode that discards resolution levels can often start while the
+    // rest of the source is still downloading.
+    let complete = if is_jxl {
+        source::wait(source.wait_until_complete()).await?;
+        true
+    } else {
+        let level = pipeline::reduction_level(region, size);
+        source::wait(source.wait_for_level(level)).await?
+    };
     // One deadline covers both queues. A request holding a source must not wait
     // indefinitely behind renders that are slow or stuck.
     let deadline =
-        tokio::time::Instant::now() + Duration::from_secs(state.config.render_wait_seconds);
+        || tokio::time::Instant::now() + Duration::from_secs(state.config.render_wait_seconds);
+    let first_deadline = deadline();
     let temp_permit =
-        reserve_render_memory(state, region, size, components, is_jxl, deadline).await?;
-    let data = render(state, &source.path, region, size, request, is_jxl, deadline).await?;
+        reserve_render_memory(state, region, size, components, is_jxl, first_deadline).await?;
+    let path = &source.path;
+    let render = |complete, deadline| {
+        render(
+            state, path, region, size, request, is_jxl, complete, deadline,
+        )
+    };
+    let data = if complete {
+        render(true, first_deadline).await?
+    } else {
+        Metrics::increment(&state.storage.metrics.partial_source_renders);
+        match render(false, first_deadline).await {
+            Ok(data) => data,
+            Err(response) if response.status() == StatusCode::INTERNAL_SERVER_ERROR => {
+                // The layout said these bytes were enough, so this is reported
+                // as an error. Decode again from the whole source rather than
+                // fail the request.
+                Metrics::increment(&state.storage.metrics.partial_source_retries);
+                warn!("decode of a partly downloaded source failed; waiting for all of it");
+                source::wait(source.wait_until_complete()).await?;
+                render(true, deadline()).await?
+            }
+            Err(response) => return Err(response),
+        }
+    };
     // Release the source before the cache write, so it can be evicted while
     // S3 and the client receive the image.
     drop(source);
@@ -170,6 +204,7 @@ fn render_memory_mib(
     estimated_bytes.div_ceil(1_048_576).max(1)
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn render(
     state: &AppState,
     source: &Path,
@@ -177,6 +212,7 @@ async fn render(
     size: (u32, u32),
     request: &ImageRequest,
     is_jxl: bool,
+    complete: bool,
     deadline: tokio::time::Instant,
 ) -> Step<Vec<u8>> {
     let decode_permit =
@@ -200,6 +236,7 @@ async fn render(
             request,
             state.config.encoding,
             state.config.max_decode_pixels,
+            complete,
         )
         .await
     };
